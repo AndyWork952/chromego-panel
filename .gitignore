@@ -10,3 +10,6 @@ __pycache__/
 *.pyc
 *.log
 .venv/
+
+# 写回时产生的备份文件不入库
+*_backup*

@@ -96,6 +96,7 @@
   .t-sub { color: var(--muted); font-size: 12px }
   .pill { font-size: 11px; padding: 1px 10px; border-radius: 99px; font-weight: 600 }
   .pill.ok { color: var(--accent); border: 1px solid rgba(124, 58, 237, .3); background: rgba(124, 58, 237, .06) }
+  .pill.mid { color: #b45309; border: 1px solid rgba(217, 119, 6, .35); background: rgba(251, 191, 36, .10) }
   .pill.no { color: var(--muted); border: 1px solid var(--line); background: rgba(255, 255, 255, .5) }
   .t-local { margin-top: 5px; font-size: 12px; color: var(--muted); word-break: break-all }
   .detail { flex: 1; min-width: 0 }
@@ -260,7 +261,7 @@ async function loadTools() {
     el.innerHTML = `
       <div class="t-head">
         <span class="t-name">${t.label}</span>
-        <span class="pill ${t.link ? 'ok' : 'no'}">${t.link ? '可生成链接' : '仅看配置'}</span>
+        <span class="pill ${t.badge && t.badge[1] === 'ok' ? 'ok' : (t.badge && t.badge[1] === 'mid' ? 'mid' : 'no')}">${t.badge ? t.badge[0] : ''}</span>
       </div>
       <div class="t-sub">${t.sub}</div>
       <div class="t-local">${local}</div>`;
@@ -281,11 +282,18 @@ function kv(node) {
 
 function linksBox(node) {
   if (!node || !node.links || !node.links.length) return '';
-  return node.links.map(l => `
+  return node.links.map(l => {
+    const ok = node.v2n;
+    const tag = ok
+      ? `<span class="pill ok" title="复制后可在 v2rayN 从剪贴板导入">v2rayN ✅</span>`
+      : `<span class="pill no" title="${(node.v2n_note || '不支持').replace(/"/g,'')}">v2rayN ❌</span>`;
+    return `
     <div class="linkrow">
+      ${tag}
       <code>${l.url.replace(/&/g,'&amp;')}</code>
       <button class="copy" onclick="copyTxt(this, '${l.url.replace(/'/g,"\\'")}')">复制</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function copyTxt(btn, txt) {

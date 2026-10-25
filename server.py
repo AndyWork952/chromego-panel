@@ -71,6 +71,20 @@ TOOLS = {
 }
 NO_LINK = {"mieru", "shadowquic", "psiphon"}  # 生成不了分享链接的
 
+# 工具卡徽章：能生成链接 ≠ v2rayN 能导入，按 v2rayN 7.x 的核心支持如实标注
+TOOL_BADGE = {
+    "xray":      ("v2rayN 可导入", "ok"),
+    "hysteria2": ("v2rayN 可导入", "ok"),
+    "clash.meta": ("v2rayN 可导入", "ok"),
+    "singbox":   ("看槽位内容", "mid"),   # 槽位可能是 TUIC(可导入) 或 hysteria v1(不可)
+    "hysteria":  ("v2rayN 不支持", "no"),  # hysteria v1 已被移除
+    "naiveproxy": ("v2rayN 不支持", "no"),
+    "juicity":   ("v2rayN 不支持", "no"),
+    "mieru":     ("仅落地配置", "no"),
+    "shadowquic": ("仅落地配置", "no"),
+    "psiphon":   ("仅记录位置", "no"),
+}
+
 CACHE_DIR.mkdir(exist_ok=True)
 
 
@@ -156,9 +170,26 @@ def _wrap_host(host: str) -> str:
     return f"[{h}]" if ":" in h else h
 
 
+def _v2n(protocol):
+    """该协议生成的分享链接能否直接导入 v2rayN（7.x，Xray + sing-box 核心）"""
+    p = str(protocol)
+    if p.startswith("vless") or p.startswith("vmess") or p.startswith("trojan") \
+            or p.startswith("shadowsocks") or p == "hysteria2" or p == "tuic":
+        return True, ""
+    if p.startswith("naive"):
+        return False, "v2rayN 已移除 NaiveProxy 支持"
+    if p == "hysteria":
+        return False, "hysteria v1 已被 v2rayN 移除（仅 hysteria2 支持）"
+    if p == "juicity":
+        return False, "v2rayN 不支持 juicity（sing-box 也不认）"
+    return False, "私有协议，无标准链接格式"
+
+
 def _mk_node(protocol, server, port, auth, sni, insecure, links, summary):
+    v2n, note = _v2n(protocol)
     return dict(protocol=protocol, server=server, port=port, auth=auth,
-                sni=sni, insecure=insecure, links=links, summary=summary)
+                sni=sni, insecure=insecure, links=links, summary=summary,
+                v2n=v2n, v2n_note=note)
 
 
 def _one(url, label):
@@ -499,7 +530,9 @@ class Handler(BaseHTTPRequestHandler):
             tools = []
             for key, t in TOOLS.items():
                 tools.append(dict(key=key, label=t["label"], sub=t["sub"], slots=t["slots"],
-                                  link=key not in NO_LINK, local=local_summary(key)))
+                                  link=key not in NO_LINK,
+                                  badge=TOOL_BADGE.get(key, ("", "no")),
+                                  local=local_summary(key)))
             self._json(dict(panel_dir=str(PANEL_DIR), settings={
                 "output": {k: _to_display(v) for k, v in SETTINGS["output"].items()}}, tools=tools))
         elif self.path == "/api/settings":
