@@ -1,0 +1,10 @@
+# 运行时产物（冷启动自动重建，不入库）
+cache/
+output/
+settings.json
+
+# Python
+__pycache__/
+*.pyc
+*.log
+.venv/

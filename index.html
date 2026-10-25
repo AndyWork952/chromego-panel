@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChromeGo 节点面板 · AndyWork 工具中心</title>
+<style>
+  :root {
+    --bg: #f4f4f8;
+    --card: rgba(255, 255, 255, .72);
+    --line: rgba(28, 25, 55, .10);
+    --text: #211f33;
+    --muted: #6b6880;
+    --accent: #7c3aed;
+    --accent2: #db2777;
+    --radius: 18px;
+    --shadow: 0 8px 28px rgba(90, 60, 180, .08);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box }
+  body {
+    background:
+      radial-gradient(700px 380px at 12% -6%, rgba(124, 58, 237, .12), transparent 60%),
+      radial-gradient(700px 380px at 90% 8%, rgba(219, 39, 119, .09), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.7;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 32px }
+
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(244, 244, 248, .75);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-in { display: flex; align-items: center; gap: 28px; height: 60px }
+  .logo { font-weight: 800; font-size: 18px }
+  .logo span { color: var(--accent) }
+  .dir-tag { margin-left: auto; font-size: 12px; color: var(--accent); background: var(--card); border: 1px solid rgba(124, 58, 237, .3); border-radius: 99px; padding: 5px 14px; cursor: pointer; transition: .2s; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .dir-tag:hover { background: rgba(124, 58, 237, .1) }
+
+  /* 设置弹框 */
+  .overlay { position: fixed; inset: 0; background: rgba(33, 31, 51, .35); backdrop-filter: blur(4px); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px }
+  .overlay[hidden] { display: none }
+  .modal { background: rgba(255, 255, 255, .92); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 20px 60px rgba(90, 60, 180, .25); width: 560px; max-width: 100%; padding: 28px; max-height: 86vh; overflow: auto }
+  .modal h3 { font-size: 17px; margin-bottom: 6px }
+  .modal .desc { color: var(--muted); font-size: 13px; margin-bottom: 18px }
+  .set-row { margin-bottom: 16px }
+  .set-row label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; margin-bottom: 6px }
+  .set-row .fn { font-weight: 400; color: var(--muted); font-size: 12px }
+  .set-row input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: 13px Consolas, "Microsoft YaHei", monospace; background: rgba(255, 255, 255, .8); color: var(--text) }
+  .set-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 58, 237, .12) }
+  .modal .foot { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px }
+
+  .hero { text-align: center; padding: 36px 0 24px }
+  .badge {
+    display: inline-block; font-size: 13px; color: var(--accent);
+    border: 1px solid rgba(124, 58, 237, .3);
+    background: rgba(124, 58, 237, .06);
+    padding: 4px 14px; border-radius: 99px; margin-bottom: 16px;
+  }
+  .hero h1 { font-size: 36px; font-weight: 900; letter-spacing: 1px }
+  .hero h1 em {
+    font-style: normal;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p { color: var(--muted); max-width: 620px; margin: 12px auto 0; font-size: 15px }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 26px 28px;
+    backdrop-filter: blur(10px);
+    box-shadow: var(--shadow);
+    margin-bottom: 22px;
+  }
+  .panel h2 { font-size: 17px; margin-bottom: 12px }
+  .desc { color: var(--muted); font-size: 13px; margin-bottom: 12px }
+
+  /* 左列工具列表 */
+  .cols { display: flex; gap: 24px; align-items: flex-start }
+  .tools { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px }
+  .tool {
+    border: 1px solid var(--line); border-radius: 14px;
+    padding: 13px 16px; cursor: pointer; transition: .2s;
+    background: rgba(255, 255, 255, .55);
+  }
+  .tool:hover { border-color: var(--accent) }
+  .tool.active { border-color: var(--accent); background: rgba(124, 58, 237, .07); box-shadow: 0 4px 16px rgba(124, 58, 237, .12) }
+  .t-head { display: flex; align-items: center; gap: 8px }
+  .t-name { font-weight: 700; font-size: 14px }
+  .t-sub { color: var(--muted); font-size: 12px }
+  .pill { font-size: 11px; padding: 1px 10px; border-radius: 99px; font-weight: 600 }
+  .pill.ok { color: var(--accent); border: 1px solid rgba(124, 58, 237, .3); background: rgba(124, 58, 237, .06) }
+  .pill.no { color: var(--muted); border: 1px solid var(--line); background: rgba(255, 255, 255, .5) }
+  .t-local { margin-top: 5px; font-size: 12px; color: var(--muted); word-break: break-all }
+  .detail { flex: 1; min-width: 0 }
+
+  .slots { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 16px }
+  .slot-btn {
+    border: 1px solid rgba(124, 58, 237, .3); background: rgba(124, 58, 237, .05);
+    color: var(--accent); border-radius: 12px; padding: 7px 20px;
+    cursor: pointer; font-size: 13px; font-weight: 700; transition: .2s;
+  }
+  .slot-btn:hover { background: rgba(124, 58, 237, .12) }
+  .slot-btn.on { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; border: none }
+
+  .btn {
+    display: inline-block; padding: 12px 28px; border-radius: 14px; border: none;
+    cursor: pointer; font-size: 15px; font-weight: 800; color: #fff;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    transition: .2s; white-space: nowrap;
+  }
+  .btn:hover { filter: brightness(1.08); transform: translateY(-2px) }
+  .btn:disabled { filter: grayscale(.6); opacity: .7; cursor: not-allowed; transform: none }
+  .btn2 {
+    color: var(--accent); background: rgba(124, 58, 237, .08);
+    border: 1px solid rgba(124, 58, 237, .35); font-weight: 700; font-size: 14px; padding: 10px 20px;
+  }
+  .btn2:hover { background: rgba(124, 58, 237, .14); transform: none; filter: none }
+  .btn2:disabled { filter: grayscale(.6); opacity: .6; cursor: not-allowed; transform: none }
+
+  .src { font-size: 12px; color: var(--muted); margin: 4px 0 16px }
+  .chg-yes { color: var(--accent2); font-weight: 800 }
+  .chg-no { color: #16a34a; font-weight: 800 }
+
+  /* 对比区：左右两块各自独立成卡，中间留出明显间距 */
+  .diff { display: flex; gap: 28px; align-items: stretch; flex-wrap: wrap; margin-top: 6px }
+  .diff .box {
+    flex: 1 1 0; min-width: 320px; border-radius: 16px;
+    padding: 18px 20px 20px; font-size: 13.5px; border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .6);
+  }
+  .box.old { border-top: 3px solid #f59e0b; background: rgba(251, 191, 36, .08) }
+  .box.new { border-top: 3px solid var(--accent); background: rgba(124, 58, 237, .05) }
+  .box .cap { font-weight: 800; font-size: 13px; margin-bottom: 12px; letter-spacing: .5px }
+  .box.old .cap { color: #b45309 }
+  .box.new .cap { color: var(--accent) }
+  .arrow { align-self: center; font-size: 24px; color: var(--accent); opacity: .55; flex-shrink: 0 }
+
+  table.kv { width: 100%; border-collapse: collapse; font-size: 13.5px }
+  table.kv td { padding: 6px 6px; border-bottom: 1px dashed var(--line); vertical-align: top }
+  table.kv td:first-child { color: var(--muted); width: 88px; white-space: nowrap }
+
+  .linkrow { display: flex; gap: 10px; align-items: center; margin-top: 14px }
+  .linkrow code {
+    flex: 1; font: 12px Consolas, "Courier New", monospace;
+    background: rgba(124, 58, 237, .08); padding: 8px 10px; border-radius: 8px;
+    overflow-x: auto; white-space: nowrap; display: block;
+  }
+  .copy { border: 1px solid rgba(124, 58, 237, .35); background: rgba(124, 58, 237, .08); color: var(--accent); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 700; flex-shrink: 0; transition: .2s }
+  .copy:hover { background: rgba(124, 58, 237, .16) }
+
+  details.raw { margin-top: 14px }
+  details.raw summary { cursor: pointer; color: var(--muted); font-size: 13px }
+  pre.rawbox {
+    margin-top: 8px; background: rgba(124, 58, 237, .05); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px; font: 12px Consolas, "Courier New", monospace;
+    max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  .why {
+    font-size: 14px; color: var(--muted);
+    border-left: 3px solid rgba(124, 58, 237, .4);
+    padding: 6px 14px; background: rgba(124, 58, 237, .05);
+    border-radius: 0 10px 10px 0;
+  }
+  .hint-ok {
+    font-size: 13px; color: var(--accent);
+    border: 1px dashed rgba(124, 58, 237, .35);
+    background: rgba(124, 58, 237, .05);
+    border-radius: 12px; padding: 10px 16px; margin-top: 14px;
+  }
+  .empty { color: var(--muted); text-align: center; padding: 70px 0 }
+  footer { border-top: 1px solid var(--line); padding: 28px 0; text-align: center; color: var(--muted); font-size: 13px }
+  @media (max-width: 720px) {
+    .cols { flex-direction: column }
+    .tools { width: 100% }
+    .hero h1 { font-size: 28px }
+    .dir-tag { display: none }
+  }
+</style>
+</head>
+<body>
+<nav>
+  <div class="wrap nav-in">
+    <div class="logo">AndyWork<span> · 节点面板</span></div>
+    <div class="dir-tag" id="dirTag" onclick="openSettings()" title="配置三个无链接协议的输出位置">📁 输出位置设置</div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="badge">⚡ 本地运行 · 数据不出你的电脑</div>
+    <h1>ChromeGo <em>节点面板</em></h1>
+    <p>拉取免费节点池的槽位配置 → 看新旧对比 → 生成 v2rayN 可直接导入的分享链接。冷启动零准备：能转链接的协议不用落任何文件，直接拉。</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="cols">
+    <div class="tools" id="toolList"></div>
+    <div class="detail panel" id="panel"><div class="empty">← 从左边挑一个工具开始</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>这套东西的玩法</h2>
+    <p class="why">云端每个编号是一个固定"槽位"，内容由作者滚动覆盖（IP 被墙就换，连协议都可能整套餐换掉）。你拉到的永远是"当下这个槽位里最新的配置"。写回只对没有链接格式的协议有用——能生成链接的，复制进 v2rayN 就完事了。</p>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">© 2026 AndyWork.vip · 节点面板（本地工具）</div>
+</footer>
+
+<!-- 输出位置设置弹框 -->
+<div class="overlay" id="setOverlay" hidden>
+  <div class="modal">
+    <h3>📁 输出位置设置</h3>
+    <p class="desc">只有生成不了链接的协议才需要落地 config 文件。Psiphon 没有配置文件，这里仅记录它的位置备用。可以填<b>相对路径</b>（基于面板目录，默认如此）或绝对路径。</p>
+    <div class="set-row">
+      <label>Mieru <span class="fn">→ 落地 config.json</span></label>
+      <input id="setMieru" spellcheck="false">
+    </div>
+    <div class="set-row">
+      <label>ShadowQUIC <span class="fn">→ 落地 client.yaml</span></label>
+      <input id="setShadowquic" spellcheck="false">
+    </div>
+    <div class="set-row">
+      <label>Psiphon <span class="fn">→ 无配置文件，仅记录位置</span></label>
+      <input id="setPsiphon" spellcheck="false">
+    </div>
+    <div class="foot">
+      <button class="btn btn2" onclick="closeSettings()">取消</button>
+      <button class="btn" onclick="saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let TOOLS = [], CUR = null, SLOT = 1, FETCHED = null, SETTINGS = null, PANEL_DIR = '';
+
+async function loadTools() {
+  const r = await fetch('/api/tools');
+  const d = await r.json();
+  TOOLS = d.tools; SETTINGS = d.settings; PANEL_DIR = d.panel_dir;
+  const o = SETTINGS.output;
+  document.getElementById('setMieru').value = o.mieru || '';
+  document.getElementById('setShadowquic').value = o.shadowquic || '';
+  document.getElementById('setPsiphon').value = o.psiphon || '';
+  const list = document.getElementById('toolList');
+  list.innerHTML = '';
+  TOOLS.forEach(t => {
+    const el = document.createElement('div');
+    el.className = 'tool' + (CUR === t.key ? ' active' : '');
+    const local = t.local ? `${t.local.node.summary}<br>${t.local.source} · ${t.local.mtime}` : '（本地还没有记录）';
+    el.innerHTML = `
+      <div class="t-head">
+        <span class="t-name">${t.label}</span>
+        <span class="pill ${t.link ? 'ok' : 'no'}">${t.link ? '可生成链接' : '仅看配置'}</span>
+      </div>
+      <div class="t-sub">${t.sub}</div>
+      <div class="t-local">${local}</div>`;
+    el.onclick = () => { CUR = t.key; SLOT = 1; FETCHED = null; loadTools(); render(); };
+    list.appendChild(el);
+  });
+}
+
+function kv(node) {
+  if (!node) return '';
+  const rows = [
+    ['协议', node.protocol], ['地址', node.server], ['端口', node.port],
+    ['认证', node.auth || '—'], ['SNI', node.sni || '—'],
+    ['跳过证书', node.insecure === 1 ? '是 ⚠️' : (node.insecure === 0 ? '否' : '—')],
+  ];
+  return `<table class="kv">${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1] ?? '—'}</td></tr>`).join('')}</table>`;
+}
+
+function linksBox(node) {
+  if (!node || !node.links || !node.links.length) return '';
+  return node.links.map(l => `
+    <div class="linkrow">
+      <code>${l.url.replace(/&/g,'&amp;')}</code>
+      <button class="copy" onclick="copyTxt(this, '${l.url.replace(/'/g,"\\'")}')">复制</button>
+    </div>`).join('');
+}
+
+function copyTxt(btn, txt) {
+  navigator.clipboard.writeText(txt).then(() => {
+    btn.textContent = '已复制 ✓'; setTimeout(() => btn.textContent = '复制', 1200);
+  });
+}
+
+function openSettings() { document.getElementById('setOverlay').hidden = false; }
+function closeSettings() { document.getElementById('setOverlay').hidden = true; }
+
+async function saveSettings() {
+  const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({output: {
+      mieru: document.getElementById('setMieru').value,
+      shadowquic: document.getElementById('setShadowquic').value,
+      psiphon: document.getElementById('setPsiphon').value,
+    }})});
+  const d = await r.json();
+  if (d.error) { alert('保存失败：' + d.error); return; }
+  SETTINGS = d.settings; closeSettings();
+  loadTools();
+}
+
+async function doFetch() {
+  const btn = document.getElementById('fetchBtn');
+  btn.disabled = true; btn.textContent = '正在拉取…';
+  try {
+    const r = await fetch('/api/fetch', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tool: CUR, slot: SLOT})});
+    const d = await r.json();
+    if (d.error) { alert('拉取失败：' + d.error); return; }
+    FETCHED = d;
+    render();
+  } finally {
+    btn.disabled = false; btn.textContent = '拉取预览';
+  }
+}
+
+async function doApply() {
+  if (!confirm('确认把新配置写回本地 ChromeGo 目录吗？旧配置会自动备份成 *_backup。')) return;
+  const btn = document.getElementById('applyBtn');
+  btn.disabled = true; btn.textContent = '正在写回…';
+  try {
+    const r = await fetch('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tool: CUR, slot: SLOT})});
+    const d = await r.json();
+    if (d.error) { alert('写回失败：' + d.error); return; }
+    alert('已写回 ✓\n' + d.target + '\n旧配置备份在同名 _backup 文件');
+    FETCHED = null;
+    loadTools(); render();
+  } finally {
+    btn.disabled = false; btn.textContent = '应用写回';
+  }
+}
+
+function render() {
+  const panel = document.getElementById('panel');
+  const t = TOOLS.find(x => x.key === CUR);
+  if (!t) { panel.innerHTML = '<div class="empty">← 从左边挑一个工具开始</div>'; return; }
+
+  const slotsHtml = t.slots ? `
+    <div class="slots">
+      ${Array.from({length: t.slots}, (_, i) => `
+        <button class="slot-btn ${SLOT === i+1 ? 'on' : ''}" onclick="SLOT=${i+1};FETCHED=null;render()">ip${i+1}</button>`).join('')}
+    </div>` : '';
+
+  let body = '';
+  if (!t.slots) {
+    body = `
+      <h2>Psiphon</h2>
+      <p class="desc">云节点池自动调度，没有本地配置文件。</p>
+      <div class="why">Psiphon 没有可拉取、可转换的东西——它自家云端管节点。想用就双击 psiphon3.exe 直接跑。</div>`;
+  } else if (FETCHED) {
+    const n = FETCHED.node, o = FETCHED.old;
+    const changed = FETCHED.changed;
+    const src = FETCHED.source === 'gitlab' ? 'GitLab 主源' : '67867867.xyz 镜像';
+    const chg = changed === null ? '' :
+      (changed ? ' · 与已有记录 <span class="chg-yes">不一样，节点换过了</span>'
+               : ' · 与已有记录 <span class="chg-no">一样，作者还没更新</span>');
+    const oldCap = t.link
+      ? '上次拉取的'
+      : `本地当前的<div class="desc" style="margin:2px 0 0; font-size:11px">${FETCHED.old_from || ''}</div>`;
+    const oldContent = o
+      ? kv(o) + linksBox(o)
+      : `<div style="color:var(--muted); padding:18px 0; text-align:center">（还没有记录<br>${t.link ? '冷启动的第一次拉取就是现在 ↓' : '还没落地过配置，写回后会出现在这里'}</div>`;
+    // 写回按钮：只有没有链接格式的协议才需要（它们只能跑自家 exe，写回是让新节点生效的唯一方式）
+    const applyHtml = t.link ? `
+      <div class="hint-ok">✅ 链接已生成，复制进 v2rayN 就能用，<b>不用写回</b>也不用落地 config —— 冷启动直接拉一次就有。</div>` : `
+      <div style="margin-top:18px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+        <button class="btn" id="applyBtn" onclick="doApply()">⬇️ 应用写回</button>
+        <span class="desc" style="margin:0">落地到 <code>${FETCHED.output_dir || ''}</code>\\<span style="font-weight:700">${t.key === 'shadowquic' ? 'client.yaml' : 'config.json'}</span>，写回后才能用它自己的 exe 生效</span>
+      </div>`;
+    body = `
+      <h2>拉取结果（ip${SLOT}）</h2>
+      <div class="src">来源：${src}${chg}</div>
+      <div class="diff">
+        <div class="box old"><div class="cap">${oldCap}</div>${oldContent}</div>
+        <div class="arrow">→</div>
+        <div class="box new"><div class="cap">远端最新</div>${kv(n)}${linksBox(n)}</div>
+      </div>
+      ${applyHtml}
+      <details class="raw"><summary>看原始配置文件</summary><pre class="rawbox">${(FETCHED.raw||'').replace(/</g,'&lt;')}</pre></details>`;
+  } else {
+    body = `
+      <h2>${t.label} · 拉哪个槽位？</h2>
+      <p class="desc">编号对应原来 ip_N.bat 的编号。${t.link ? '冷启动不用准备任何东西，直接拉。' : '拉完预览后写回到输出目录。'}</p>
+      ${slotsHtml}
+      <button class="btn" id="fetchBtn" onclick="doFetch()">⚡ 拉取预览</button>`;
+  }
+  panel.innerHTML = body;
+}
+
+loadTools();
+</script>
+</body>
+</html>
