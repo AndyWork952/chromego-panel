@@ -1,7 +1,9 @@
 # 运行时产物（冷启动自动重建，不入库）
 cache/
-output/
 settings.json
+
+# 说明：output/ 里的 mieru/config.json 和 shadowquic/client.yaml 是初始种子配置，随仓库分发；
+# 本地使用更新后 git status 会显示修改，想恢复初始状态：git checkout -- output
 
 # Python
 __pycache__/
