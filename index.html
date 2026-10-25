@@ -94,6 +94,12 @@
   }
   .slot-btn:hover { background: rgba(124, 58, 237, .12) }
   .slot-btn.on { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; border: none }
+  .slot-btn.dup { opacity: .55 }
+  .dup-tag { font-size: 10px; font-weight: 600; margin-left: 4px; opacity: .8 }
+
+  .agg-row { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap }
+  .agg-from { font-size: 12px; color: var(--muted); width: 130px; flex-shrink: 0; font-weight: 600 }
+  .agg-sum { flex: 1; min-width: 180px; font-size: 13.5px; font-weight: 600 }
 
   .btn {
     display: inline-block; padding: 12px 28px; border-radius: 14px; border: none;
@@ -197,6 +203,20 @@
     <div class="detail panel" id="panel"><div class="empty">← 从左边挑一个工具开始</div></div>
   </div>
 
+  <div class="panel" id="aggPanel">
+    <h2>全部线路 · 去重汇总</h2>
+    <p class="desc">7 个工具 × 全部槽位一次拉完，重复节点自动去掉。下面这个订阅地址可以直接填进 v2rayN（订阅 → 添加订阅），以后拉完点一下 v2rayN 的"更新订阅"就同步了：</p>
+    <div class="linkrow">
+      <code id="subUrl">http://127.0.0.1:8765/sub</code>
+      <button class="copy" onclick="copyTxt(this, 'http://127.0.0.1:8765/sub')">复制</button>
+    </div>
+    <div style="margin-top:16px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+      <button class="btn" id="aggBtn" onclick="doFetchAll()">🔄 拉取全部槽位并去重</button>
+      <span class="desc" style="margin:0" id="aggHint">拉完后订阅内容自动更新，再去 v2rayN 点"更新订阅"即可</span>
+    </div>
+    <div id="aggResult"></div>
+  </div>
+
   <div class="panel">
     <h2>这套东西的玩法</h2>
     <p class="why">云端每个编号是一个固定"槽位"，内容由作者滚动覆盖（IP 被墙就换，连协议都可能整套餐换掉）。你拉到的永远是"当下这个槽位里最新的配置"。复制链接进 v2rayN 就完事了。</p>
@@ -279,6 +299,36 @@ async function doFetch() {
   }
 }
 
+async function doFetchAll() {
+  const btn = document.getElementById('aggBtn');
+  btn.disabled = true; btn.textContent = '正在拉取全部槽位…（大约十几秒）';
+  const hint = document.getElementById('aggHint');
+  try {
+    const r = await fetch('/api/fetch_all', {method:'POST', headers:{'Content-Type':'application/json'}, body: '{}'});
+    const d = await r.json();
+    if (d.error) { alert('汇总失败：' + d.error); return; }
+    const rows = d.unique.map(n => {
+      const tag = n.v2n
+        ? `<span class="pill ok">v2rayN ✅</span>`
+        : `<span class="pill no" title="${(n.v2n_note||'').replace(/"/g,'')}">v2rayN ❌</span>`;
+      const link = n.links && n.links[0];
+      return `<div class="agg-row">
+        <span class="agg-from">${n.from_tool} · 源${n.from_slot}</span>
+        ${tag}
+        <span class="agg-sum">${n.summary}</span>
+        ${link ? `<button class="copy" onclick="copyTxt(this, '${link.url.replace(/'/g,"\\'")}')">复制链接</button>` : ''}
+      </div>`;
+    }).join('');
+    document.getElementById('aggResult').innerHTML = `
+      <div class="src" style="margin-top:18px">去重后 ${d.unique.length} 条独立线路${d.errors.length ? ` · ${d.errors.length} 个槽位拉取失败（${d.errors.join('、')}）` : ''}</div>
+      ${rows}`;
+    hint.textContent = '✅ 订阅内容已更新，去 v2rayN 点"更新订阅"即可同步全部线路';
+    loadTools();  // 刷新槽位重复标记
+  } finally {
+    btn.disabled = false; btn.textContent = '🔄 拉取全部槽位并去重';
+  }
+}
+
 function nodeBlock(nd, i, total) {
   const cap = total > 1 ? `<div class="ncap">节点 ${i + 1}</div>` : '';
   return `<div class="nblock">${cap}${kv(nd)}${linksBox(nd)}</div>`;
@@ -291,8 +341,12 @@ function render() {
 
   const slotsHtml = t.slots ? `
     <div class="slots">
-      ${Array.from({length: t.slots}, (_, i) => `
-        <button class="slot-btn ${SLOT === i+1 ? 'on' : ''}" onclick="SLOT=${i+1};FETCHED=null;render()">ip${i+1}</button>`).join('')}
+      ${Array.from({length: t.slots}, (_, i) => {
+        const dup = t.slot_tags && t.slot_tags[i];
+        return `<button class="slot-btn ${SLOT === i+1 ? 'on' : ''} ${dup ? 'dup' : ''}"
+          title="${dup ? '内容和源' + dup.replace('同源','') + '完全一样，拉了也是白拉' : '拉取源' + (i+1)}"
+          onclick="SLOT=${i+1};FETCHED=null;render()">源${i+1}${dup ? `<span class="dup-tag">${dup}</span>` : ''}</button>`;
+      }).join('')}
     </div>` : '';
 
   let body = '';
@@ -307,7 +361,7 @@ function render() {
       ? oldNodes.map((nd, i) => nodeBlock(nd, i, oldNodes.length)).join('')
       : `<div style="color:var(--muted); padding:18px 0; text-align:center">（还没有记录<br>冷启动的第一次拉取就是现在 ↓）</div>`;
     body = `
-      <h2>拉取结果（ip${SLOT}）</h2>
+      <h2>拉取结果（源${SLOT}）</h2>
       <div class="src">来源：${src}${chg} · 槽位里共 <b>${nodes.length}</b> 个节点</div>
       <div class="diff">
         <div class="box old"><div class="cap">上次拉取的${oldNodes.length > 1 ? `（${oldNodes.length} 个节点）` : ''}</div>${oldContent}</div>

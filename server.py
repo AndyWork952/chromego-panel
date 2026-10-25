@@ -12,6 +12,7 @@ import re
 import ssl
 import urllib.request
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from datetime import datetime
@@ -391,6 +392,88 @@ def nodes_fingerprint(nodes):
     return [(n["protocol"], n["server"], str(n["port"])) for n in nodes]
 
 
+# ---------- 汇总 / 去重 ----------
+def slot_dup_tags(tool_key: str, slots: int):
+    """根据缓存判断哪些槽位内容和其他槽位重复。返回 ["同源1", None, ...]（None=不重复或没拉过）。"""
+    tags = [None] * slots
+    seen = {}  # 指纹 -> 首次出现的槽位号
+    for s in range(1, slots + 1):
+        text = read_cached(tool_key, s)
+        if not text:
+            continue
+        nodes, _ = parse_config_text(text, "")
+        fp = tuple(nodes_fingerprint(nodes))
+        if fp in seen:
+            tags[s - 1] = f"同源{seen[fp]}"
+        else:
+            seen[fp] = s
+    return tags
+
+
+def aggregate_unique(refresh=False):
+    """
+    拉取全部工具的全部槽位（refresh=True 时联网刷新并更新缓存，否则读缓存），
+    按协议+地址+端口去重。返回 (unique_nodes, errors)。
+    """
+    jobs = [(key, s) for key, t in TOOLS.items() for s in range(1, t["slots"] + 1)]
+    parsed = {}  # (tool, slot) -> nodes or None
+
+    if refresh:
+        def work(job):
+            key, s = job
+            try:
+                text, _ = fetch_remote(key, s)
+                nodes, _ = parse_config_text(text, f"{TOOLS[key]['label']}-源{s}")
+                write_cache(key, s, text)
+                return nodes
+            except Exception:
+                return None
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for job, nodes in zip(jobs, ex.map(work, jobs)):
+                parsed[job] = nodes
+    else:
+        for job in jobs:
+            key, s = job
+            text = read_cached(key, s)
+            parsed[job] = parse_config_text(text, f"{TOOLS[key]['label']}-源{s}")[0] if text else None
+
+    unique, seen, errors = [], set(), []
+    for (key, s), nodes in parsed.items():
+        if nodes is None:
+            errors.append(f"{TOOLS[key]['label']} 源{s}")
+            continue
+        for n in nodes:
+            fpk = (n["protocol"], n["server"], str(n["port"]))
+            if fpk in seen:
+                continue
+            seen.add(fpk)
+            unique.append(dict(protocol=n["protocol"], summary=n["summary"], v2n=n["v2n"],
+                               v2n_note=n["v2n_note"], clients=n["clients"], links=n["links"],
+                               from_tool=TOOLS[key]["label"], from_slot=s))
+    return unique, errors
+
+
+def build_sub():
+    """把缓存里全部去重后的可用链接聚合成 v2rayN 订阅（base64）。"""
+    lines, seen = [], set()
+    for key, t in TOOLS.items():
+        for s in range(1, t["slots"] + 1):
+            text = read_cached(key, s)
+            if not text:
+                continue
+            nodes, _ = parse_config_text(text, f"{t['label']}-源{s}")
+            for n in nodes:
+                if not n["v2n"]:
+                    continue  # v2rayN 不支持的协议不进订阅，避免噪音
+                fpk = (n["protocol"], n["server"], str(n["port"]))
+                if fpk in seen:
+                    continue
+                seen.add(fpk)
+                for l in n["links"]:
+                    lines.append(l["url"])
+    return base64.b64encode("\n".join(lines).encode()).decode()
+
+
 # ---------- 本地状态 ----------
 def local_state(tool_key: str, slot: int):
     """返回该槽位上次拉取的 (text, 来源说明) 或 (None, None)。"""
@@ -447,8 +530,16 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     badge = TOOL_BADGE[key]  # 没有本地记录时按工具的典型协议标注
                 tools.append(dict(key=key, label=t["label"], sub=t["sub"], slots=t["slots"],
-                                  badge=badge, local=loc))
+                                  badge=badge, local=loc,
+                                  slot_tags=slot_dup_tags(key, t["slots"])))
             self._json(dict(panel_dir=str(PANEL_DIR), tools=tools))
+        elif self.path == "/sub":
+            body = build_sub().encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self._json(dict(error="not found"), 404)
 
@@ -457,6 +548,14 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
         except Exception:
             return self._json(dict(error="请求体不是合法 JSON"), 400)
+
+        if self.path == "/api/fetch_all":
+            try:
+                unique, errors = aggregate_unique(refresh=True)
+                return self._json(dict(unique=unique, errors=errors,
+                                       sub_url=f"http://127.0.0.1:{PORT}/sub"))
+            except Exception as e:
+                return self._json(dict(error=str(e)), 502)
 
         if self.path != "/api/fetch":
             return self._json(dict(error="not found"), 404)
