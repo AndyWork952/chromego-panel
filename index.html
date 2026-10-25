@@ -38,8 +38,6 @@
   .nav-in { display: flex; align-items: center; gap: 28px; height: 60px }
   .logo { font-weight: 800; font-size: 18px }
   .logo span { color: var(--accent) }
-  .dir-tag { margin-left: auto; font-size: 12px; color: var(--accent); background: var(--card); border: 1px solid rgba(124, 58, 237, .3); border-radius: 99px; padding: 5px 14px; cursor: pointer; transition: .2s; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-  .dir-tag:hover { background: rgba(124, 58, 237, .1) }
 
   .hero { text-align: center; padding: 36px 0 24px }
   .badge {
@@ -70,7 +68,7 @@
 
   /* 左列工具列表 */
   .cols { display: flex; gap: 24px; align-items: flex-start; margin-bottom: 26px }
-  .tools { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px }
+  .tools { width: 248px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px }
   .tool {
     border: 1px solid var(--line); border-radius: 14px;
     padding: 13px 16px; cursor: pointer; transition: .2s;
@@ -116,13 +114,15 @@
   .chg-yes { color: var(--accent2); font-weight: 800 }
   .chg-no { color: #16a34a; font-weight: 800 }
 
-  /* 对比区：左右两块各自独立成卡，中间留出明显间距 */
-  .diff { display: flex; gap: 48px; align-items: stretch; flex-wrap: wrap; margin-top: 10px }
+  /* 对比区：在右侧详情面板内，随面板宽度展开 */
+  .diff { display: flex; gap: 44px; align-items: stretch; flex-wrap: wrap; margin-top: 14px }
   .diff .box {
-    flex: 1 1 0; min-width: 320px; border-radius: 16px;
+    flex: 1 1 0; min-width: 300px; border-radius: 16px;
     padding: 20px 22px 22px; font-size: 13.5px; border: 1px solid var(--line);
     background: rgba(255, 255, 255, .6);
   }
+  .nblock + .nblock { border-top: 1px dashed var(--line); margin-top: 16px; padding-top: 14px }
+  .ncap { font-size: 11px; font-weight: 800; color: var(--muted); margin-bottom: 6px; letter-spacing: .5px }
   .box.old { border-top: 3px solid #f59e0b; background: rgba(251, 191, 36, .08) }
   .box.new { border-top: 3px solid var(--accent); background: rgba(124, 58, 237, .05) }
   .box .cap { font-weight: 800; font-size: 13px; margin-bottom: 12px; letter-spacing: .5px }
@@ -173,7 +173,6 @@
     .cols { flex-direction: column }
     .tools { width: 100% }
     .hero h1 { font-size: 28px }
-    .dir-tag { display: none }
   }
 </style>
 </head>
@@ -181,7 +180,6 @@
 <nav>
   <div class="wrap nav-in">
     <div class="logo">AndyWork<span> · 节点面板</span></div>
-    <div class="dir-tag" id="dirTag">📁 面板目录加载中…</div>
   </div>
 </nav>
 
@@ -216,13 +214,12 @@ async function loadTools() {
   const r = await fetch('/api/tools');
   const d = await r.json();
   TOOLS = d.tools; PANEL_DIR = d.panel_dir;
-  document.getElementById('dirTag').textContent = '📁 ' + PANEL_DIR;
   const list = document.getElementById('toolList');
   list.innerHTML = '';
   TOOLS.forEach(t => {
     const el = document.createElement('div');
     el.className = 'tool' + (CUR === t.key ? ' active' : '');
-    const local = t.local ? `${t.local.node.summary}<br>${t.local.source} · ${t.local.mtime}` : '（本地还没有记录）';
+    const local = t.local ? `${t.local.node.summary}${t.local.count > 1 ? ` 等 ${t.local.count} 个节点` : ''}<br>${t.local.source} · ${t.local.mtime}` : '（本地还没有记录）';
     el.innerHTML = `
       <div class="t-head">
         <span class="t-name">${t.label}</span>
@@ -282,6 +279,11 @@ async function doFetch() {
   }
 }
 
+function nodeBlock(nd, i, total) {
+  const cap = total > 1 ? `<div class="ncap">节点 ${i + 1}</div>` : '';
+  return `<div class="nblock">${cap}${kv(nd)}${linksBox(nd)}</div>`;
+}
+
 function render() {
   const panel = document.getElementById('panel');
   const t = TOOLS.find(x => x.key === CUR);
@@ -295,22 +297,22 @@ function render() {
 
   let body = '';
   if (FETCHED) {
-    const n = FETCHED.node, o = FETCHED.old;
+    const nodes = FETCHED.nodes || [], oldNodes = FETCHED.old_nodes || [];
     const changed = FETCHED.changed;
     const src = FETCHED.source === 'gitlab' ? 'GitLab 主源' : '67867867.xyz 镜像';
     const chg = changed === null ? '' :
       (changed ? ' · 与已有记录 <span class="chg-yes">不一样，节点换过了</span>'
                : ' · 与已有记录 <span class="chg-no">一样，作者还没更新</span>');
-    const oldContent = o
-      ? kv(o) + linksBox(o)
+    const oldContent = oldNodes.length
+      ? oldNodes.map((nd, i) => nodeBlock(nd, i, oldNodes.length)).join('')
       : `<div style="color:var(--muted); padding:18px 0; text-align:center">（还没有记录<br>冷启动的第一次拉取就是现在 ↓）</div>`;
     body = `
       <h2>拉取结果（ip${SLOT}）</h2>
-      <div class="src">来源：${src}${chg}</div>
+      <div class="src">来源：${src}${chg} · 槽位里共 <b>${nodes.length}</b> 个节点</div>
       <div class="diff">
-        <div class="box old"><div class="cap">上次拉取的</div>${oldContent}</div>
+        <div class="box old"><div class="cap">上次拉取的${oldNodes.length > 1 ? `（${oldNodes.length} 个节点）` : ''}</div>${oldContent}</div>
         <div class="arrow">→</div>
-        <div class="box new"><div class="cap">远端最新</div>${kv(n)}${linksBox(n)}</div>
+        <div class="box new"><div class="cap">远端最新${nodes.length > 1 ? `（${nodes.length} 个节点）` : ''}</div>${nodes.map((nd, i) => nodeBlock(nd, i, nodes.length)).join('')}</div>
       </div>
       <div class="hint-ok">✅ 链接已生成，复制进 v2rayN 就能用 —— 冷启动直接拉一次就有，不用落地任何文件。</div>
       <details class="raw"><summary>看原始配置文件</summary><pre class="rawbox">${(FETCHED.raw||'').replace(/</g,'&lt;')}</pre></details>`;

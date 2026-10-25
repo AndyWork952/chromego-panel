@@ -328,51 +328,67 @@ SKIP_TYPES = {"direct", "block", "dns", "urltest", "selector", "socks", "http"}
 
 
 def parse_config_text(text: str, label: str):
-    """探测配置结构 -> 按实际协议解析。返回 (node, raw)。"""
+    """探测配置结构 -> 解析出槽位里的全部节点（一个槽位常塞多个节点）。返回 (nodes, raw)。"""
     try:
         if text.lstrip().startswith(("{", "[")):
             data = json.loads(text)
         else:
             data = yaml.safe_load(text)
     except Exception:
-        return _mk_node("?", "-", "-", "-", "-", None, [], "配置格式异常，请看原始内容"), text
+        return [_mk_node("?", "-", "-", "-", "-", None, [], "配置格式异常，请看原始内容")], text
     if not isinstance(data, dict):
-        return _mk_node("?", "-", "-", "-", "-", None, [], "配置内容异常"), text
+        return [_mk_node("?", "-", "-", "-", "-", None, [], "配置内容异常")], text
 
+    nodes = []
     try:
         if "proxy" in data and "listen" in data:
-            return parse_naive(data, label), text
-        if "auth_str" in data and "server" in data:
-            return parse_hysteria1(data, label), text
-        if "auth" in data and "bandwidth" in data and "server" in data:
+            nodes = [parse_naive(data, label)]
+        elif "auth_str" in data and "server" in data:
+            nodes = [parse_hysteria1(data, label)]
+        elif "auth" in data and "bandwidth" in data and "server" in data:
             host, _, port = data["server"].rpartition(":")
             tls = data.get("tls", {})
-            return parse_hysteria2(data["auth"], host, port, tls.get("sni"),
-                                   1 if tls.get("insecure") else 0, label=label), text
-        if "uuid" in data and "password" in data and "server" in data:
-            return parse_juicity(data, label), text
-        if "proxies" in data and isinstance(data["proxies"], list) and data["proxies"]:
-            node = parse_clash_proxy(data["proxies"][0], label)
-            if node:
-                return node, text
-            return _mk_node(f"clash/{data['proxies'][0].get('type','?')}", "-", "-", "-", "-", None, [],
-                            f"协议 {data['proxies'][0].get('type')} 暂不支持转链接，请看原始内容"), text
-        obs = data.get("outbounds")
-        if isinstance(obs, list) and obs:
-            first = obs[0]
-            if first.get("protocol") == "vless":
-                return parse_xray(data, label), text
-            o = next((x for x in obs if x.get("type") not in SKIP_TYPES), None)
-            if o:
-                node = parse_singbox_outbound(o, label)
-                if node:
-                    return node, text
-                return _mk_node(f"singbox/{o.get('type')}", "-", "-", "-", "-", None, [],
-                                f"协议 {o.get('type')} 暂不支持转链接，请看原始内容"), text
+            nodes = [parse_hysteria2(data["auth"], host, port, tls.get("sni"),
+                                     1 if tls.get("insecure") else 0, label=label)]
+        elif "uuid" in data and "password" in data and "server" in data:
+            nodes = [parse_juicity(data, label)]
+        elif "proxies" in data and isinstance(data["proxies"], list) and data["proxies"]:
+            # clash 格式：解析全部支持的代理
+            for i, p in enumerate(data["proxies"]):
+                nd = parse_clash_proxy(p, f"{label}#{i + 1}")
+                if nd:
+                    nodes.append(nd)
+            if not nodes:
+                p = data["proxies"][0]
+                nodes = [_mk_node(f"clash/{p.get('type', '?')}", "-", "-", "-", "-", None, [],
+                                  f"协议 {p.get('type')} 暂不支持转链接，请看原始内容")]
+        else:
+            obs = data.get("outbounds")
+            if isinstance(obs, list) and obs:
+                if obs[0].get("protocol") == "vless":
+                    nodes = [parse_xray(data, label)]
+                else:
+                    # sing-box 格式：解析全部非占位 outbound
+                    for i, o in enumerate(x for x in obs if x.get("type") not in SKIP_TYPES):
+                        nd = parse_singbox_outbound(o, f"{label}#{i + 1}")
+                        if nd:
+                            nodes.append(nd)
+                    if not nodes:
+                        o = next((x for x in obs if x.get("type") not in SKIP_TYPES), None)
+                        if o:
+                            nodes = [_mk_node(f"singbox/{o.get('type')}", "-", "-", "-", "-", None, [],
+                                              f"协议 {o.get('type')} 暂不支持转链接，请看原始内容")]
     except Exception as e:
-        return _mk_node("?", "-", "-", "-", "-", None, [], f"解析失败：{e}"), text
+        return [_mk_node("?", "-", "-", "-", "-", None, [], f"解析失败：{e}")], text
 
-    return _mk_node("?", "-", "-", "-", "-", None, [], "未识别的配置结构，请看原始内容"), text
+    if not nodes:
+        nodes = [_mk_node("?", "-", "-", "-", "-", None, [], "未识别的配置结构，请看原始内容")]
+    return nodes, text
+
+
+def nodes_fingerprint(nodes):
+    """节点列表的指纹，用于新旧对比。"""
+    return [(n["protocol"], n["server"], str(n["port"])) for n in nodes]
 
 
 # ---------- 本地状态 ----------
@@ -393,8 +409,9 @@ def local_summary(tool_key: str):
             best = f
     if best:
         slot = int(re.search(r"_ip(\d+)", best.name).group(1))
-        node, _ = parse_config_text(best.read_text(encoding="utf-8", errors="replace"), f"{t['label']}-ip{slot}")
-        return dict(node=node, mtime=datetime.fromtimestamp(best.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+        nodes, _ = parse_config_text(best.read_text(encoding="utf-8", errors="replace"), f"{t['label']}-ip{slot}")
+        return dict(node=nodes[0], count=len(nodes),
+                    mtime=datetime.fromtimestamp(best.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
                     source=f"上次拉取(ip{slot})")
     return None
 
@@ -451,17 +468,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(error=f"槽位超出范围，该工具只有 ip1~ip{TOOLS[tool]['slots']}"), 400)
         try:
             text, source = fetch_remote(tool, slot)
-            node, _ = parse_config_text(text, f"{TOOLS[tool]['label']}-ip{slot}")
+            nodes, _ = parse_config_text(text, f"{TOOLS[tool]['label']}-ip{slot}")
             old_text, old_from = local_state(tool, slot)
-            old = None
+            old_nodes = []
             if old_text:
-                old, _ = parse_config_text(old_text, f"{TOOLS[tool]['label']}-旧")
+                old_nodes, _ = parse_config_text(old_text, f"{TOOLS[tool]['label']}-旧")
             changed = None
-            if old is not None:
-                changed = not (old["server"] == node["server"] and old["port"] == node["port"])
+            if old_nodes:
+                changed = nodes_fingerprint(old_nodes) != nodes_fingerprint(nodes)
             write_cache(tool, slot, text)  # 每次拉取都更新缓存（冷启动后下一次就有"上次拉取"了）
-            return self._json(dict(source=source, node=node, old=old, old_from=old_from,
-                                   changed=changed, raw=text, first_time=old is None))
+            return self._json(dict(source=source, nodes=nodes, old_nodes=old_nodes,
+                                   changed=changed, raw=text, first_time=not old_nodes))
         except Exception as e:
             return self._json(dict(error=str(e)), 502)
 
