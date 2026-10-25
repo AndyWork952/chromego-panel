@@ -10,6 +10,7 @@ import base64
 import json
 import re
 import ssl
+import threading
 import urllib.request
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +19,8 @@ from pathlib import Path
 from datetime import datetime
 
 import yaml
+
+WARMING = False  # 冷启动预热中标志（预热线程完成后置 False）
 
 PANEL_DIR = Path(__file__).resolve().parent
 CACHE_DIR = PANEL_DIR / "cache"
@@ -403,11 +406,33 @@ def slot_dup_tags(tool_key: str, slots: int):
             continue
         nodes, _ = parse_config_text(text, "")
         fp = tuple(nodes_fingerprint(nodes))
+        if not fp:  # 解析失败的空指纹不参与重复判断
+            continue
         if fp in seen:
             tags[s - 1] = f"同源{seen[fp]}"
         else:
             seen[fp] = s
     return tags
+
+
+def warm_cache():
+    """冷启动预热：cache/ 是运行时产物（clone 下来是空的），后台并发把全部槽位拉一遍写进缓存，
+    这样"同源N"标记和 /sub 订阅第一次用就有数据。"""
+    jobs = [(key, s) for key, t in TOOLS.items()
+            for s in range(1, t["slots"] + 1) if not read_cached(key, s)]
+    if not jobs:
+        return
+
+    def work(job):
+        key, s = job
+        try:
+            text, _ = fetch_remote(key, s)
+            write_cache(key, s, text)
+        except Exception:
+            pass  # 预热失败不打扰启动，用户点拉取时会看到具体错误
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        list(ex.map(work, jobs))
 
 
 def aggregate_unique(refresh=False):
@@ -517,6 +542,8 @@ class Handler(BaseHTTPRequestHandler):
             page = (PANEL_DIR / "index.html").read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            # 禁缓存：页面迭代频繁，浏览器缓存旧 JS 会导致新功能"没生效"
+            self.send_header("Cache-Control", "no-store, must-revalidate")
             self.send_header("Content-Length", str(len(page)))
             self.end_headers()
             self.wfile.write(page)
@@ -532,7 +559,7 @@ class Handler(BaseHTTPRequestHandler):
                 tools.append(dict(key=key, label=t["label"], sub=t["sub"], slots=t["slots"],
                                   badge=badge, local=loc,
                                   slot_tags=slot_dup_tags(key, t["slots"])))
-            self._json(dict(panel_dir=str(PANEL_DIR), tools=tools))
+            self._json(dict(panel_dir=str(PANEL_DIR), tools=tools, warming=WARMING))
         elif self.path == "/sub":
             body = build_sub().encode("utf-8")
             self.send_response(200)
@@ -583,9 +610,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global WARMING
     print(f"ChromeGo 节点面板  ->  http://127.0.0.1:{PORT}")
     print(f"面板目录          ->  {PANEL_DIR}")
     print(f"配置缓存          ->  {CACHE_DIR}")
+    # 后台预热：把缺缓存的槽位拉一遍，"同源N"标记和 /sub 第一次用就有数据
+    def _warm():
+        global WARMING
+        warm_cache()
+        WARMING = False
+        print("预热完成：全部槽位缓存就绪")
+    WARMING = True
+    threading.Thread(target=_warm, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 

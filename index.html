@@ -198,6 +198,7 @@
 </header>
 
 <main class="wrap">
+  <div id="warmTip" hidden style="background:rgba(124,58,237,.07); border:1px solid rgba(124,58,237,.2); border-radius:12px; padding:10px 16px; margin-bottom:14px; font-size:13px; color:var(--accent)">⏳ 首次启动预热中：正在后台拉取全部槽位，几秒后"同源"标记和订阅数据会自动就绪…</div>
   <div class="cols">
     <div class="tools" id="toolList"></div>
     <div class="detail panel" id="panel"><div class="empty">← 从左边挑一个工具开始</div></div>
@@ -234,6 +235,14 @@ async function loadTools() {
   const r = await fetch('/api/tools');
   const d = await r.json();
   TOOLS = d.tools; PANEL_DIR = d.panel_dir;
+  // 冷启动预热：后端正在后台拉全部槽位写缓存，完成后"同源N"标记才会出现
+  const warmEl = document.getElementById('warmTip');
+  if (d.warming && !loadTools._polling) {
+    warmEl.hidden = false;
+    loadTools._polling = setTimeout(() => { loadTools._polling = null; loadTools(); }, 5000);
+  } else if (!d.warming) {
+    warmEl.hidden = true;
+  }
   const list = document.getElementById('toolList');
   list.innerHTML = '';
   TOOLS.forEach(t => {
