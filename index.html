@@ -41,19 +41,6 @@
   .dir-tag { margin-left: auto; font-size: 12px; color: var(--accent); background: var(--card); border: 1px solid rgba(124, 58, 237, .3); border-radius: 99px; padding: 5px 14px; cursor: pointer; transition: .2s; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
   .dir-tag:hover { background: rgba(124, 58, 237, .1) }
 
-  /* 设置弹框 */
-  .overlay { position: fixed; inset: 0; background: rgba(33, 31, 51, .35); backdrop-filter: blur(4px); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px }
-  .overlay[hidden] { display: none }
-  .modal { background: rgba(255, 255, 255, .92); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 20px 60px rgba(90, 60, 180, .25); width: 560px; max-width: 100%; padding: 28px; max-height: 86vh; overflow: auto }
-  .modal h3 { font-size: 17px; margin-bottom: 6px }
-  .modal .desc { color: var(--muted); font-size: 13px; margin-bottom: 18px }
-  .set-row { margin-bottom: 16px }
-  .set-row label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; margin-bottom: 6px }
-  .set-row .fn { font-weight: 400; color: var(--muted); font-size: 12px }
-  .set-row input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: 13px Consolas, "Microsoft YaHei", monospace; background: rgba(255, 255, 255, .8); color: var(--text) }
-  .set-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 58, 237, .12) }
-  .modal .foot { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px }
-
   .hero { text-align: center; padding: 36px 0 24px }
   .badge {
     display: inline-block; font-size: 13px; color: var(--accent);
@@ -130,10 +117,10 @@
   .chg-no { color: #16a34a; font-weight: 800 }
 
   /* 对比区：左右两块各自独立成卡，中间留出明显间距 */
-  .diff { display: flex; gap: 28px; align-items: stretch; flex-wrap: wrap; margin-top: 6px }
+  .diff { display: flex; gap: 48px; align-items: stretch; flex-wrap: wrap; margin-top: 10px }
   .diff .box {
     flex: 1 1 0; min-width: 320px; border-radius: 16px;
-    padding: 18px 20px 20px; font-size: 13.5px; border: 1px solid var(--line);
+    padding: 20px 22px 22px; font-size: 13.5px; border: 1px solid var(--line);
     background: rgba(255, 255, 255, .6);
   }
   .box.old { border-top: 3px solid #f59e0b; background: rgba(251, 191, 36, .08) }
@@ -147,7 +134,12 @@
   table.kv td { padding: 6px 6px; border-bottom: 1px dashed var(--line); vertical-align: top }
   table.kv td:first-child { color: var(--muted); width: 88px; white-space: nowrap }
 
-  .linkrow { display: flex; gap: 10px; align-items: center; margin-top: 14px }
+  .linktags { margin-top: 16px }
+  .linkrow { display: flex; gap: 10px; align-items: center; margin-top: 8px }
+  .clients { margin-top: 18px; border-top: 1px dashed var(--line); padding-top: 12px; font-size: 12px; color: var(--muted) }
+  .clients .lab { display: block; margin-bottom: 8px; font-weight: 600 }
+  .clients .chips { display: flex; flex-wrap: wrap; gap: 6px }
+  .client-chip { display: inline-block; background: rgba(124, 58, 237, .07); border: 1px solid rgba(124, 58, 237, .18); border-radius: 99px; padding: 2px 10px; color: var(--accent); font-weight: 600 }
   .linkrow code {
     flex: 1; font: 12px Consolas, "Courier New", monospace;
     background: rgba(124, 58, 237, .08); padding: 8px 10px; border-radius: 8px;
@@ -189,7 +181,7 @@
 <nav>
   <div class="wrap nav-in">
     <div class="logo">AndyWork<span> · 节点面板</span></div>
-    <div class="dir-tag" id="dirTag" onclick="openSettings()" title="配置三个无链接协议的输出位置">📁 输出位置设置</div>
+    <div class="dir-tag" id="dirTag">📁 面板目录加载中…</div>
   </div>
 </nav>
 
@@ -209,7 +201,7 @@
 
   <div class="panel">
     <h2>这套东西的玩法</h2>
-    <p class="why">云端每个编号是一个固定"槽位"，内容由作者滚动覆盖（IP 被墙就换，连协议都可能整套餐换掉）。你拉到的永远是"当下这个槽位里最新的配置"。写回只对没有链接格式的协议有用——能生成链接的，复制进 v2rayN 就完事了。</p>
+    <p class="why">云端每个编号是一个固定"槽位"，内容由作者滚动覆盖（IP 被墙就换，连协议都可能整套餐换掉）。你拉到的永远是"当下这个槽位里最新的配置"。复制链接进 v2rayN 就完事了。</p>
   </div>
 </main>
 
@@ -217,41 +209,14 @@
   <div class="wrap">© 2026 AndyWork.vip · 节点面板（本地工具）</div>
 </footer>
 
-<!-- 输出位置设置弹框 -->
-<div class="overlay" id="setOverlay" hidden>
-  <div class="modal">
-    <h3>📁 输出位置设置</h3>
-    <p class="desc">只有生成不了链接的协议才需要落地 config 文件。Psiphon 没有配置文件，这里仅记录它的位置备用。可以填<b>相对路径</b>（基于面板目录，默认如此）或绝对路径。</p>
-    <div class="set-row">
-      <label>Mieru <span class="fn">→ 落地 config.json</span></label>
-      <input id="setMieru" spellcheck="false">
-    </div>
-    <div class="set-row">
-      <label>ShadowQUIC <span class="fn">→ 落地 client.yaml</span></label>
-      <input id="setShadowquic" spellcheck="false">
-    </div>
-    <div class="set-row">
-      <label>Psiphon <span class="fn">→ 无配置文件，仅记录位置</span></label>
-      <input id="setPsiphon" spellcheck="false">
-    </div>
-    <div class="foot">
-      <button class="btn btn2" onclick="closeSettings()">取消</button>
-      <button class="btn" onclick="saveSettings()">保存</button>
-    </div>
-  </div>
-</div>
-
 <script>
-let TOOLS = [], CUR = null, SLOT = 1, FETCHED = null, SETTINGS = null, PANEL_DIR = '';
+let TOOLS = [], CUR = null, SLOT = 1, FETCHED = null, PANEL_DIR = '';
 
 async function loadTools() {
   const r = await fetch('/api/tools');
   const d = await r.json();
-  TOOLS = d.tools; SETTINGS = d.settings; PANEL_DIR = d.panel_dir;
-  const o = SETTINGS.output;
-  document.getElementById('setMieru').value = o.mieru || '';
-  document.getElementById('setShadowquic').value = o.shadowquic || '';
-  document.getElementById('setPsiphon').value = o.psiphon || '';
+  TOOLS = d.tools; PANEL_DIR = d.panel_dir;
+  document.getElementById('dirTag').textContent = '📁 ' + PANEL_DIR;
   const list = document.getElementById('toolList');
   list.innerHTML = '';
   TOOLS.forEach(t => {
@@ -282,40 +247,24 @@ function kv(node) {
 
 function linksBox(node) {
   if (!node || !node.links || !node.links.length) return '';
-  return node.links.map(l => {
-    const ok = node.v2n;
-    const tag = ok
-      ? `<span class="pill ok" title="复制后可在 v2rayN 从剪贴板导入">v2rayN ✅</span>`
-      : `<span class="pill no" title="${(node.v2n_note || '不支持').replace(/"/g,'')}">v2rayN ❌</span>`;
-    return `
+  const ok = node.v2n;
+  const tag = ok
+    ? `<span class="pill ok" title="复制后可在 v2rayN 从剪贴板导入">v2rayN ✅</span>`
+    : `<span class="pill no" title="${(node.v2n_note || '不支持').replace(/"/g,'')}">v2rayN ❌</span>`;
+  const clients = (node.clients && node.clients.length)
+    ? `<div class="clients"><span class="lab">🧰 能用它的客户端</span><span class="chips">${node.clients.map(c =>
+        `<span class="client-chip">${c}</span>`).join('')}</span></div>` : '';
+  return `<div class="linktags">${tag}</div>` + node.links.map(l => `
     <div class="linkrow">
-      ${tag}
       <code>${l.url.replace(/&/g,'&amp;')}</code>
       <button class="copy" onclick="copyTxt(this, '${l.url.replace(/'/g,"\\'")}')">复制</button>
-    </div>`;
-  }).join('');
+    </div>`).join('') + clients;
 }
 
 function copyTxt(btn, txt) {
   navigator.clipboard.writeText(txt).then(() => {
     btn.textContent = '已复制 ✓'; setTimeout(() => btn.textContent = '复制', 1200);
   });
-}
-
-function openSettings() { document.getElementById('setOverlay').hidden = false; }
-function closeSettings() { document.getElementById('setOverlay').hidden = true; }
-
-async function saveSettings() {
-  const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({output: {
-      mieru: document.getElementById('setMieru').value,
-      shadowquic: document.getElementById('setShadowquic').value,
-      psiphon: document.getElementById('setPsiphon').value,
-    }})});
-  const d = await r.json();
-  if (d.error) { alert('保存失败：' + d.error); return; }
-  SETTINGS = d.settings; closeSettings();
-  loadTools();
 }
 
 async function doFetch() {
@@ -333,23 +282,6 @@ async function doFetch() {
   }
 }
 
-async function doApply() {
-  if (!confirm('确认把新配置写回本地 ChromeGo 目录吗？旧配置会自动备份成 *_backup。')) return;
-  const btn = document.getElementById('applyBtn');
-  btn.disabled = true; btn.textContent = '正在写回…';
-  try {
-    const r = await fetch('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({tool: CUR, slot: SLOT})});
-    const d = await r.json();
-    if (d.error) { alert('写回失败：' + d.error); return; }
-    alert('已写回 ✓\n' + d.target + '\n旧配置备份在同名 _backup 文件');
-    FETCHED = null;
-    loadTools(); render();
-  } finally {
-    btn.disabled = false; btn.textContent = '应用写回';
-  }
-}
-
 function render() {
   const panel = document.getElementById('panel');
   const t = TOOLS.find(x => x.key === CUR);
@@ -362,45 +294,30 @@ function render() {
     </div>` : '';
 
   let body = '';
-  if (!t.slots) {
-    body = `
-      <h2>Psiphon</h2>
-      <p class="desc">云节点池自动调度，没有本地配置文件。</p>
-      <div class="why">Psiphon 没有可拉取、可转换的东西——它自家云端管节点。想用就双击 psiphon3.exe 直接跑。</div>`;
-  } else if (FETCHED) {
+  if (FETCHED) {
     const n = FETCHED.node, o = FETCHED.old;
     const changed = FETCHED.changed;
     const src = FETCHED.source === 'gitlab' ? 'GitLab 主源' : '67867867.xyz 镜像';
     const chg = changed === null ? '' :
       (changed ? ' · 与已有记录 <span class="chg-yes">不一样，节点换过了</span>'
                : ' · 与已有记录 <span class="chg-no">一样，作者还没更新</span>');
-    const oldCap = t.link
-      ? '上次拉取的'
-      : `本地当前的<div class="desc" style="margin:2px 0 0; font-size:11px">${FETCHED.old_from || ''}</div>`;
     const oldContent = o
       ? kv(o) + linksBox(o)
-      : `<div style="color:var(--muted); padding:18px 0; text-align:center">（还没有记录<br>${t.link ? '冷启动的第一次拉取就是现在 ↓' : '还没落地过配置，写回后会出现在这里'}</div>`;
-    // 写回按钮：只有没有链接格式的协议才需要（它们只能跑自家 exe，写回是让新节点生效的唯一方式）
-    const applyHtml = t.link ? `
-      <div class="hint-ok">✅ 链接已生成，复制进 v2rayN 就能用，<b>不用写回</b>也不用落地 config —— 冷启动直接拉一次就有。</div>` : `
-      <div style="margin-top:18px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
-        <button class="btn" id="applyBtn" onclick="doApply()">⬇️ 应用写回</button>
-        <span class="desc" style="margin:0">落地到 <code>${FETCHED.output_dir || ''}</code>\\<span style="font-weight:700">${t.key === 'shadowquic' ? 'client.yaml' : 'config.json'}</span>，写回后才能用它自己的 exe 生效</span>
-      </div>`;
+      : `<div style="color:var(--muted); padding:18px 0; text-align:center">（还没有记录<br>冷启动的第一次拉取就是现在 ↓）</div>`;
     body = `
       <h2>拉取结果（ip${SLOT}）</h2>
       <div class="src">来源：${src}${chg}</div>
       <div class="diff">
-        <div class="box old"><div class="cap">${oldCap}</div>${oldContent}</div>
+        <div class="box old"><div class="cap">上次拉取的</div>${oldContent}</div>
         <div class="arrow">→</div>
         <div class="box new"><div class="cap">远端最新</div>${kv(n)}${linksBox(n)}</div>
       </div>
-      ${applyHtml}
+      <div class="hint-ok">✅ 链接已生成，复制进 v2rayN 就能用 —— 冷启动直接拉一次就有，不用落地任何文件。</div>
       <details class="raw"><summary>看原始配置文件</summary><pre class="rawbox">${(FETCHED.raw||'').replace(/</g,'&lt;')}</pre></details>`;
   } else {
     body = `
       <h2>${t.label} · 拉哪个槽位？</h2>
-      <p class="desc">编号对应原来 ip_N.bat 的编号。${t.link ? '冷启动不用准备任何东西，直接拉。' : '拉完预览后写回到输出目录。'}</p>
+      <p class="desc">编号对应原来 ip_N.bat 的编号。冷启动不用准备任何东西，直接拉。</p>
       ${slotsHtml}
       <button class="btn" id="fetchBtn" onclick="doFetch()">⚡ 拉取预览</button>`;
   }
