@@ -10,8 +10,10 @@ import base64
 import json
 import os
 import re
+import socket
 import ssl
 import threading
+import time
 import urllib.request
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +24,20 @@ from datetime import datetime
 import yaml
 
 WARMING = False  # 冷启动预热中标志（预热线程完成后置 False）
+EXT_REFRESHING = False  # 外部订阅源刷新中标志
+
+# 外部公共订阅源（2026-10-26 实测存活率最高的两个）：拉取 -> 解析链接 -> TCP 测活 -> 只留活节点
+# mirror 是 jsDelivr CDN 兜底——raw.githubusercontent 在国内网络经常被重置
+EXT_SOURCES = {
+    "aliilapro": dict(label="ALIILAPRO",
+                      url="https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
+                      mirror="https://cdn.jsdelivr.net/gh/ALIILAPRO/v2rayNG-Config@main/sub.txt"),
+    "pawdroid":  dict(label="Pawdroid",
+                      url="https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub",
+                      mirror="https://cdn.jsdelivr.net/gh/Pawdroid/Free-servers@main/sub"),
+}
+EXT_PROBE_LIMIT = 600  # 每源最多探测的节点数（控制刷新耗时在 1 分钟级）
+EXT_KEEP = 300         # 每源最多保留进订阅的活节点数（控制订阅体积）
 
 PANEL_DIR = Path(__file__).resolve().parent
 CACHE_DIR = PANEL_DIR / "cache"
@@ -506,6 +522,11 @@ def iter_unique_links(v2n_only=True):
             seen.add(fpk)
             for l in n["links"]:
                 yield l["url"], l["name"]
+    # 外部公共源：进来前已经过 TCP 存活探测，只有活节点（TCP 协议，天然 v2rayN 可导入）
+    for url, name, _, _ in ext_alive():
+        if url not in seen:
+            seen.add(url)
+            yield url, name
 
 
 def build_sub():
@@ -514,11 +535,46 @@ def build_sub():
     return base64.b64encode("\n".join(urls).encode()).decode()
 
 
+def link_name(url):
+    """节点显示名：优先 URL fragment，vmess 取 JSON 里的 ps 字段。"""
+    u = urllib.parse.urlparse(url)
+    if u.fragment:
+        return urllib.parse.unquote(u.fragment)
+    if url.startswith("vmess://"):
+        try:
+            body = url[8:].split("#", 1)[0]
+            return json.loads(base64.b64decode(body + "=" * (-len(body) % 4))).get("ps") or "节点"
+        except Exception:
+            pass
+    return "节点"
+
+
 def _clash_proxy(url, name):
     """分享链接 -> mihomo 代理 dict。字段来源与生成链接时一一对应。"""
     u = urllib.parse.urlparse(url)
     q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
     ins = {"skip-cert-verify": True}
+    if u.scheme == "vmess":  # vmess 是 base64 JSON；body 里可能含 "/"，不能取 netloc（会被当路径截断）
+        try:
+            body = url[8:].split("#", 1)[0]
+            d = json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
+        except Exception:
+            return None  # 坏链接：公共源里难免混入，跳过比打挂整个订阅好
+        p = dict(name=name, type="vmess", server=d.get("add"), port=int(d.get("port") or 0),
+                 uuid=d.get("id"), alterId=int(d.get("aid") or 0),
+                 cipher=d.get("scy") or d.get("cipher") or "auto", udp=True)
+        if d.get("tls") == "tls":
+            p["tls"] = True
+            if d.get("sni"):
+                p["servername"] = d["sni"]
+        net = d.get("net")
+        if net in ("ws", "h2", "http"):
+            p["network"] = "ws" if net == "ws" else "h2"
+            if d.get("path"):
+                p["ws-opts" if net == "ws" else "h2-opts"] = {"path": d["path"]}
+            if net == "ws" and d.get("host"):
+                p.setdefault("ws-opts", {}).setdefault("headers", {})["Host"] = d["host"]
+        return p
     if u.scheme == "vless":
         net = q.get("type", "tcp")
         p = dict(name=name, type="vless", server=u.hostname, port=u.port, uuid=u.username,
@@ -538,9 +594,17 @@ def _clash_proxy(url, name):
             p.update(ins)
         return p
     if u.scheme == "ss":
-        raw = u.username or ""
-        cipher, _, pw = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode().partition(":")
-        return dict(name=name, type="ss", server=u.hostname, port=u.port,
+        if u.username:  # 新格式：ss://base64(cipher:pass)@host:port
+            raw = u.username
+            cipher, _, pw = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode().partition(":")
+            server, port = u.hostname, u.port
+        else:  # 旧格式：整段 base64(cipher:pass@host:port)
+            body = u.netloc.split("#", 1)[0]
+            userinfo, _, hostport = base64.urlsafe_b64decode(
+                body + "=" * (-len(body) % 4)).decode().rpartition("@")
+            cipher, _, pw = userinfo.partition(":")
+            server, _, port = hostport.rpartition(":")
+        return dict(name=name, type="ss", server=server, port=int(port),
                     cipher=cipher, password=pw, udp=True)
     if u.scheme == "hysteria2":
         auth = urllib.parse.unquote(u.username or "")
@@ -581,9 +645,9 @@ def build_sub_clash():
     proxies, names, taken = [], [], set()
     for url, _ in iter_unique_links(v2n_only=False):
         scheme = urllib.parse.urlparse(url).scheme
-        if scheme not in ("vless", "trojan", "ss", "hysteria", "hysteria2", "tuic"):
+        if scheme not in ("vless", "trojan", "ss", "vmess", "hysteria", "hysteria2", "tuic"):
             continue
-        base = urllib.parse.unquote(urllib.parse.urlparse(url).fragment) or "节点"
+        base = link_name(url)
         name, i = base, 2
         while name in taken:
             name = f"{base} {i}"
@@ -605,6 +669,125 @@ def build_sub_clash():
         ],
         "rules": ["MATCH,🚀 节点选择"],
     }, allow_unicode=True, sort_keys=False)
+
+
+# ---------- 外部公共订阅源 ----------
+_EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")  # UDP 协议（hysteria 系）无法 TCP 测活，外部源只收这四种
+
+
+def _parse_link(link):
+    """分享链接 -> (scheme, host, port)，用于去重和测活。vmess 的地址在 base64 JSON 里。"""
+    scheme, _, rest = link.partition("://")
+    if scheme == "vmess":
+        try:
+            body = rest.split("#", 1)[0]
+            d = json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
+            return scheme, d.get("add"), int(d.get("port") or 0)
+        except Exception:
+            return None
+    try:
+        u = urllib.parse.urlparse(link)
+        return (scheme, u.hostname, u.port) if u.hostname and u.port else None
+    except Exception:
+        return None
+
+
+def _tcp_probe(host, port):
+    """TCP 握手测活，返回耗时 ms 或 None。遍历全部地址族，避免 IPv6 优先时误判。"""
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except Exception:
+        return None
+    for af, st, pr, _, sa in infos:
+        t0 = time.time()
+        try:
+            s = socket.socket(af, st, pr)
+            s.settimeout(3)
+            s.connect(sa)
+            s.close()
+            return (time.time() - t0) * 1000
+        except Exception:
+            continue
+    return None
+
+
+def ext_cache_file(key):
+    return CACHE_DIR / f"ext_{key}.json"
+
+
+def refresh_ext(key):
+    """拉取一个外部源 -> 解析去重 -> 并行 TCP 测活 -> 按延迟保留前 EXT_KEEP 个活节点写缓存。"""
+    src = EXT_SOURCES[key]
+    text, source = None, None
+    for i, url in enumerate((src["url"], src["mirror"], src["url"])):  # raw -> jsDelivr -> raw 重试
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 ChromeGoPanel"})
+            with urllib.request.urlopen(req, timeout=45) as r:
+                text = r.read().decode("utf-8", errors="replace")
+            source = "jsDelivr" if i == 1 else "github"
+            break
+        except Exception:
+            if i < 2:
+                time.sleep(2)
+    if text is None:
+        raise RuntimeError("主源和镜像都拉取失败")
+    if "://" not in text[:4000]:  # 整体 base64 的订阅
+        text = base64.b64decode(text.strip() + "=" * (-len(text.strip()) % 4)).decode("utf-8", "replace")
+    links, seen = [], set()
+    for line in text.splitlines():
+        line = line.strip()
+        p = _parse_link(line) if "://" in line else None
+        if p and p[0] in _EXT_TCP_SCHEMES and p not in seen:
+            seen.add(p)
+            links.append(line)
+    pairs = [(l, _parse_link(l)) for l in links[:EXT_PROBE_LIMIT]]
+    with ThreadPoolExecutor(max_workers=60) as ex:
+        results = list(ex.map(lambda x: (x[0], _tcp_probe(x[1][1], x[1][2])), pairs))
+    alive = sorted((ms, url) for url, ms in results if ms is not None)
+    data = dict(fetched=datetime.now().strftime("%Y-%m-%d %H:%M"), source=source,
+                total=len(links), alive=len(alive),
+                nodes=[dict(url=url, name=link_name(url), ms=round(ms)) for ms, url in alive[:EXT_KEEP]])
+    ext_cache_file(key).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return data
+
+
+def ext_alive():
+    """全部外部源的存活节点，跨源按 (协议,地址,端口) 再去重一次。"""
+    out, seen = [], set()
+    for key in EXT_SOURCES:
+        f = ext_cache_file(key)
+        if not f.exists():
+            continue
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for n in d.get("nodes", []):
+            p = _parse_link(n["url"])
+            if p and p not in seen:
+                seen.add(p)
+                out.append((n["url"], n["name"], n["ms"], d.get("fetched", "")))
+    return out
+
+
+def refresh_ext_all(background=True):
+    """刷新全部外部源。默认后台跑（全量测活要 1-2 分钟），立即返回。"""
+    global EXT_REFRESHING
+    def work():
+        global EXT_REFRESHING
+        EXT_REFRESHING = True
+        try:
+            for key in EXT_SOURCES:
+                try:
+                    refresh_ext(key)
+                except Exception as e:
+                    print(f"外部源 {key} 刷新失败: {e}")
+        finally:
+            EXT_REFRESHING = False
+    if background:
+        threading.Thread(target=work, daemon=True).start()
+    else:
+        work()
 
 
 # ---------- 本地状态 ----------
@@ -658,6 +841,19 @@ class Handler(BaseHTTPRequestHandler):
                                   slot_tags=slot_dup_tags(key, t["slots"])))
             self._json(dict(panel_dir=str(PANEL_DIR), tools=tools, warming=WARMING,
                             sub_url=f"http://127.0.0.1:{PORT}/sub"))
+        elif self.path == "/api/ext":
+            exts = []
+            for key, src in EXT_SOURCES.items():
+                info = dict(key=key, label=src["label"])
+                f = ext_cache_file(key)
+                try:
+                    d = json.loads(f.read_text(encoding="utf-8"))
+                    info.update(fetched=d.get("fetched"), total=d.get("total"),
+                                alive=d.get("alive"), keep=len(d.get("nodes", [])))
+                except Exception:
+                    info.update(fetched=None, total=None, alive=None, keep=0)
+                exts.append(info)
+            self._json(dict(ext=exts, refreshing=EXT_REFRESHING))
         elif self.path == "/sub":
             ua = self.headers.get("User-Agent", "").lower()
             if "clash" in ua or "mihomo" in ua:
@@ -673,6 +869,10 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
         except Exception:
             return self._json(dict(error="请求体不是合法 JSON"), 400)
+
+        if self.path == "/api/ext_refresh":
+            refresh_ext_all(background=True)
+            return self._json(dict(ok=True, hint="后台刷新中，约 1-2 分钟后完成"))
 
         if self.path == "/api/fetch_all":
             try:
@@ -718,6 +918,9 @@ def main():
         print("预热完成：全部槽位缓存就绪")
     WARMING = True
     threading.Thread(target=_warm, daemon=True).start()
+    # 外部源：本地没有缓存时（首次启动）自动拉一次；之后靠面板上的"刷新外部源"手动更新
+    if not all(ext_cache_file(k).exists() for k in EXT_SOURCES):
+        threading.Thread(target=lambda: refresh_ext_all(background=False), daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 

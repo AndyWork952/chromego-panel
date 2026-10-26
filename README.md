@@ -19,3 +19,13 @@ python server.py
 
 - `cache/` 是运行时产物（不入库），启动后会后台预热把缺缓存的槽位拉一遍
 - 云端每个编号是固定"槽位"，内容由作者滚动覆盖，拉到的永远是当下最新配置
+- **外部公共源**：面板内置 ALIILAPRO + Pawdroid 两个实测存活率高的公共订阅源。拉取后会解析全部链接、并行 TCP 测活（3 秒超时）、按延迟排序，只把活节点（每源最多 300 个）并入订阅。raw.githubusercontent 不通时自动走 jsDelivr 镜像。面板上"刷新外部源"可手动更新（约 1-2 分钟），首次启动缺缓存时会自动拉一次
+- 外部源只收录 TCP 协议（vmess/vless/trojan/ss）；hysteria 系是 UDP，无法测活，仍来自 ChromeGo 槽位
+
+## 致谢
+
+本面板基于以下项目与资源构建，感谢各位维护者：
+
+- **[bannedbook/fanqiang](https://github.com/bannedbook/fanqiang)** —— 本面板参考的原 ChromeGo 项目（翻墙-科学上网），免费节点池（Xray / Clash.Meta / Hysteria / Hysteria2 / Juicity / NaiveProxy / Sing-box 各槽位配置）来自其维护的更新仓库 [gitlab.com/free9999/ipupdate](https://gitlab.com/free9999/ipupdate)
+- **[ALIILAPRO/v2rayNG-Config](https://github.com/ALIILAPRO/v2rayNG-Config)** —— 外部公共源之一，实测规模最大的免费订阅仓库
+- **[Pawdroid/Free-servers](https://github.com/Pawdroid/Free-servers)** —— 外部公共源之一，少而精的精选订阅
