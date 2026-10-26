@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ChromeGo 节点面板 · AndyWork 工具中心</title>
+<title>ChromeGo 节点面板</title>
 <style>
   :root {
     --bg: #f4f4f8;
@@ -190,7 +190,7 @@
 <body>
 <nav>
   <div class="wrap nav-in">
-    <div class="logo">AndyWork<span> · 节点面板</span></div>
+    <div class="logo">ChromeGo<span> · 节点面板</span></div>
   </div>
 </nav>
 
@@ -198,35 +198,35 @@
   <div class="wrap">
     <div class="badge">⚡ 本地运行 · 数据不出你的电脑</div>
     <h1>ChromeGo <em>节点面板</em></h1>
-    <p>拉取免费节点池的槽位配置 → 看新旧对比 → 生成 v2rayN 可直接导入的分享链接。冷启动零准备：能转链接的协议不用落任何文件，直接拉。</p>
+    <p>挑一个工具，点一下拉取，就能看到这次拿到什么、跟上次比变没变。能用的话复制链接，粘进 v2rayN 就能上。第一次打开也不用准备任何文件。</p>
   </div>
 </header>
 
 <main class="wrap">
-  <div id="warmTip" hidden style="background:rgba(124,58,237,.07); border:1px solid rgba(124,58,237,.2); border-radius:12px; padding:10px 16px; margin-bottom:14px; font-size:13px; color:var(--accent)">⏳ 首次启动预热中：正在后台拉取全部槽位，几秒后"同源"标记和订阅数据会自动就绪…</div>
+  <div id="warmTip" hidden style="background:rgba(124,58,237,.07); border:1px solid rgba(124,58,237,.2); border-radius:12px; padding:10px 16px; margin-bottom:14px; font-size:13px; color:var(--accent)">⏳ 第一次启动，正在后台把所有源先拉一遍，稍等一下：「内容重复」的标记和订阅数据马上就好…</div>
   <div class="cols">
     <div class="tools" id="toolList"></div>
     <div class="detail panel" id="panel"><div class="empty">← 从左边挑一个工具开始</div></div>
   </div>
 
   <div class="panel" id="aggPanel">
-    <h2>全部线路 · 去重汇总</h2>
-    <p class="desc">7 个工具 × 全部槽位一次拉完，重复节点自动去掉。下面这个订阅地址可以直接填进 v2rayN（订阅 → 添加订阅），以后拉完点一下 v2rayN 的"更新订阅"就同步了：</p>
+    <h2>全部线路 · 已去重</h2>
+    <p class="desc">把 7 个工具的所有源一次拉完，重复的节点自动去掉。下面这个地址填一次就行，以后不用改（v2rayN 里：订阅 → 添加订阅）。想看最新节点，在客户端点一下「更新订阅」，它就会重新来取一次最新的：</p>
     <div class="linkrow">
       <code id="subUrl">http://127.0.0.1:8765/sub</code>
       <button class="copy" id="subCopy" data-copy="http://127.0.0.1:8765/sub">复制</button>
     </div>
     <div style="margin-top:16px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
-      <button class="btn" id="aggBtn" onclick="doFetchAll()">🔄 拉取全部槽位并去重</button>
-      <span class="desc" style="margin:0" id="aggHint">拉完后订阅内容自动更新，再去 v2rayN 点"更新订阅"即可</span>
+      <button class="btn" id="aggBtn" onclick="doFetchAll()">🔄 一次拉全部（自动去重）</button>
+      <span class="desc" style="margin:0" id="aggHint">拉完后，去客户端点一下「更新订阅」就能看到新节点</span>
     </div>
     <div style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px">
       <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
-        <span class="desc" style="margin:0; font-weight:700">🌐 外部公共源</span>
+        <span class="desc" style="margin:0; font-weight:700">🌐 公共免费源</span>
         <span class="desc" style="margin:0" id="extInfo">加载中…</span>
-        <button class="btn" id="extBtn" onclick="doExtRefresh()">🌐 刷新外部源</button>
-        <label class="tog" id="dropVmWrap" title="免费源的 VMess 节点通常半小时内就失效，过滤后订阅更耐用">
-          <input type="checkbox" id="dropVm" onchange="doDropVm(this.checked)"> 过滤 VMess
+        <button class="btn" id="extBtn" onclick="doExtRefresh()">🌐 立即更新</button>
+        <label class="tog" id="dropVmWrap" title="VMess 节点通常半小时内就失效，去掉后订阅更耐用">
+          <input type="checkbox" id="dropVm" onchange="doDropVm(this.checked)"> 不要 VMess 节点
         </label>
       </div>
       <div class="src" id="extRows" style="margin-top:4px"></div>
@@ -236,13 +236,13 @@
   </div>
 
   <div class="panel">
-    <h2>这套东西的玩法</h2>
-    <p class="why">云端每个编号是一个固定"槽位"，内容由作者滚动覆盖（IP 被墙就换，连协议都可能整套餐换掉）。你拉到的永远是"当下这个槽位里最新的配置"。复制链接进 v2rayN 就完事了。</p>
+    <h2>它是怎么运作的</h2>
+    <p class="why">作者在云端放了若干固定地址（界面上叫「源1、源2」）。每个地址里的节点会不定期换——IP 被墙了就换掉，有时连协议都整套换。所以你每次拉到的是「这个地址此刻正在放的东西」，不保证和昨天一样：别把某次拉到的链接当长期饭票，隔几天回来重拉一次更稳。</p>
   </div>
 </main>
 
 <footer>
-  <div class="wrap">© 2026 AndyWork.vip · 节点面板（本地工具）<br>本工具仅供学习与技术研究，节点内容均来自公开网络渠道，与本项目无关；使用时请遵守您所在地区的法律法规。</div>
+  <div class="wrap">节点面板 · 本地工具<br>本工具仅供学习与技术研究，节点内容均来自公开网络渠道，与本项目无关；使用时请遵守您所在地区的法律法规。</div>
 </footer>
 
 <script>
@@ -321,29 +321,28 @@ document.addEventListener('click', e => {
 
 async function doFetch() {
   const btn = document.getElementById('fetchBtn');
-  btn.disabled = true; btn.textContent = '正在拉取…';
-  try {
+  btn.disabled = true; btn.textContent = '正在拉取…';  try {
     const r = await fetch('/api/fetch', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({tool: CUR, slot: SLOT})});
     const d = await r.json();
-    if (d.error) { alert('拉取失败：' + d.error); return; }
+    if (d.error) { alert('没拉下来：' + d.error); return; }
     FETCHED = d;
     render();
   } catch (e) {
-    alert('拉取失败：' + e);
+    alert('没拉下来：' + e);
   } finally {
-    btn.disabled = false; btn.textContent = '拉取预览';
+    btn.disabled = false; btn.textContent = '⚡ 拉这个源看看';
   }
 }
 
 async function doFetchAll() {
   const btn = document.getElementById('aggBtn');
-  btn.disabled = true; btn.textContent = '正在拉取全部槽位…（大约十几秒）';
+  btn.disabled = true; btn.textContent = '正在拉全部源…（十几秒）';
   const hint = document.getElementById('aggHint');
   try {
     const r = await fetch('/api/fetch_all', {method:'POST', headers:{'Content-Type':'application/json'}, body: '{}'});
     const d = await r.json();
-    if (d.error) { alert('汇总失败：' + d.error); return; }
+    if (d.error) { alert('没拉下来：' + d.error); return; }
     const rows = d.unique.map(n => {
       const tag = n.v2n
         ? `<span class="pill ok">v2rayN ✅</span>`
@@ -360,12 +359,12 @@ async function doFetchAll() {
       </div>`;
     }).join('');
     document.getElementById('aggResult').innerHTML = `
-      <div class="src" style="margin-top:18px">去重后 ${d.unique.length} 条独立线路${d.errors.length ? ` · ${d.errors.length} 个槽位拉取失败（${d.errors.join('、')}）` : ''}</div>
+      <div class="src" style="margin-top:18px">去重后剩 ${d.unique.length} 条线路${d.errors.length ? ` · 有 ${d.errors.length} 个源没拉下来（${d.errors.join('、')}）` : ''}</div>
       ${rows}`;
-    hint.textContent = '✅ 订阅内容已更新，去 v2rayN 点"更新订阅"即可同步全部线路';
-    loadTools();  // 刷新槽位重复标记
+    hint.textContent = '✅ 订阅已更新，去 v2rayN 点一下「更新订阅」就能看到全部线路';
+    loadTools();  // 刷新「内容重复」标记
   } finally {
-    btn.disabled = false; btn.textContent = '🔄 拉取全部槽位并去重';
+    btn.disabled = false; btn.textContent = '🔄 一次拉全部（自动去重）';
   }
 }
 
@@ -384,7 +383,7 @@ function render() {
       ${Array.from({length: t.slots}, (_, i) => {
         const dup = t.slot_tags && t.slot_tags[i];
         return `<button class="slot-btn ${SLOT === i+1 ? 'on' : ''} ${dup ? 'dup' : ''}"
-          title="${dup ? '内容和源' + dup.replace('同源','') + '完全一样，拉了也是白拉' : '拉取源' + (i+1)}"
+          title="${dup ? '跟源' + dup.replace('同源','') + '完全一样，拉下来也没区别' : '拉取源' + (i+1)}"
           onclick="SLOT=${i+1};FETCHED=null;render()">源${i+1}${dup ? `<span class="dup-tag">${dup}</span>` : ''}</button>`;
       }).join('')}
     </div>` : '';
@@ -393,29 +392,29 @@ function render() {
   if (FETCHED) {
     const nodes = FETCHED.nodes || [], oldNodes = FETCHED.old_nodes || [];
     const changed = FETCHED.changed;
-    const src = FETCHED.source === 'gitlab' ? 'GitLab 主源' : '67867867.xyz 镜像';
+    const src = FETCHED.source === 'gitlab' ? 'GitLab（主地址）' : '67867867.xyz（备用地址）';
     const chg = changed === null ? '' :
-      (changed ? ' · 与已有记录 <span class="chg-yes">不一样，节点换过了</span>'
-               : ' · 与已有记录 <span class="chg-no">一样，作者还没更新</span>');
+      (changed ? ' · 跟上次比 <span class="chg-yes">换了新节点</span>'
+               : ' · 跟上次 <span class="chg-no">一模一样，作者还没更新</span>');
     const oldContent = oldNodes.length
       ? oldNodes.map((nd, i) => nodeBlock(nd, i, oldNodes.length)).join('')
-      : `<div style="color:var(--muted); padding:18px 0; text-align:center">（还没有记录<br>冷启动的第一次拉取就是现在 ↓）</div>`;
+      : `<div style="color:var(--muted); padding:18px 0; text-align:center">（还没有上次的记录<br>这次就是第一次 ↓）</div>`;
     body = `
-      <h2>拉取结果（源${SLOT}）</h2>
-      <div class="src">来源：${src}${chg} · 槽位里共 <b>${nodes.length}</b> 个节点</div>
+      <h2>这次拉到什么（源${SLOT}）</h2>
+      <div class="src">来源：${src}${chg} · 这个源里共 <b>${nodes.length}</b> 个节点</div>
       <div class="diff">
-        <div class="box old"><div class="cap">上次拉取的${oldNodes.length > 1 ? `（${oldNodes.length} 个节点）` : ''}</div>${oldContent}</div>
+        <div class="box old"><div class="cap">上次拉到${oldNodes.length > 1 ? `（${oldNodes.length} 个节点）` : ''}</div>${oldContent}</div>
         <div class="arrow">→</div>
-        <div class="box new"><div class="cap">远端最新${nodes.length > 1 ? `（${nodes.length} 个节点）` : ''}</div>${nodes.map((nd, i) => nodeBlock(nd, i, nodes.length)).join('')}</div>
+        <div class="box new"><div class="cap">这次拉到${nodes.length > 1 ? `（${nodes.length} 个节点）` : ''}</div>${nodes.map((nd, i) => nodeBlock(nd, i, nodes.length)).join('')}</div>
       </div>
-      <div class="hint-ok">✅ 链接已生成，复制进 v2rayN 就能用 —— 冷启动直接拉一次就有，不用落地任何文件。</div>
-      <details class="raw"><summary>看原始配置文件</summary><pre class="rawbox">${esc(FETCHED.raw||'')}</pre></details>`;
+      <div class="hint-ok">✅ 链接生成好了，复制粘进 v2rayN 就能用，不用先下载配置文件。</div>
+      <details class="raw"><summary>看看原始配置（一般不用管）</summary><pre class="rawbox">${esc(FETCHED.raw||'')}</pre></details>`;
   } else {
     body = `
-      <h2>${t.label} · 拉哪个槽位？</h2>
-      <p class="desc">编号对应原来 ip_N.bat 的编号。冷启动不用准备任何东西，直接拉。</p>
+      <h2>${t.label} · 选一个源</h2>
+      <p class="desc">源1、源2 就是原来 ip_1.bat、ip_2.bat 的编号。不用准备任何东西，直接点就行。</p>
       ${slotsHtml}
-      <button class="btn" id="fetchBtn" onclick="doFetch()">⚡ 拉取预览</button>`;
+      <button class="btn" id="fetchBtn" onclick="doFetch()">⚡ 拉这个源看看</button>`;
   }
   panel.innerHTML = body;
 }
@@ -428,25 +427,39 @@ async function loadExt() {
     const btn = document.getElementById('extBtn');
     if (d.refreshing) {
       _extWasRefreshing = true;
-      document.getElementById('extInfo').textContent = '⏳ 正在拉取订阅 → 解析链接 → 并行真握手测活（约 1 分钟，可以先干别的）…';
+      document.getElementById('extInfo').textContent = '⏳ 正在下载这些源、再一个个试着连一下，大约 1 分钟，可以先干别的…';
       btn.disabled = true;
       setTimeout(loadExt, 8000);
     } else {
       btn.disabled = false;
-      if (_extWasRefreshing) {  // 刷新刚完成的瞬间：给出明确结果和下一步
+      if (_extWasRefreshing) {  // 刷新刚完成的瞬间：给出明确结果和下一步（失败的源如实说，不冒充成功）
         _extWasRefreshing = false;
         const done = document.getElementById('extDone');
-        done.innerHTML = `✅ 外部源刷新完成：${d.ext.map(e => `<b>${esc(e.label)}</b> 存活 ${e.alive}/${e.total}、订阅收录 ${e.keep} 个`).join('；')}。节点已按快慢排序并入订阅 —— 去 v2rayN / Clash Verge 点一下「更新订阅」就能用`;
+        const parts = d.ext.map(e => e.error
+          ? `<b>${esc(e.label)}</b> 没更新成功，先用上次的`
+          : `<b>${esc(e.label)}</b> 共 ${e.total} 个，能连上 ${e.alive} 个，留下 ${e.keep} 个`);
+        const failedAll = d.ext.every(e => e.error);
+        done.innerHTML = failedAll
+          ? `⚠️ 这次一个源都没更新成功（原因见上面），订阅继续用上次拿到的节点，客户端照常能用 —— 把网络修好后点「立即更新」或等下一轮自动重试`
+          : `✅ 公共源更新完了：${parts.join('；')}。去掉重复后挑出最快的 ${d.keep_total} 条放进订阅 —— 去 v2rayN / Clash Verge 点一下「更新订阅」就能用`;
         done.hidden = false;
       }
-      document.getElementById('extInfo').textContent = '真握手测活（TLS + WebSocket 101）后的节点自动进订阅，按延迟排序';
+      const net = d.proxy ? `借 v2rayN 的代理上网（${esc(d.proxy.replace('http://', ''))}）`
+                          : (d.proxy_checked ? '没开 v2rayN，走的是直连 —— GitHub 上的源多半拉不到' : '正在看网络情况…');
+      document.getElementById('extInfo').textContent = `每 ${d.every_min} 分钟自动更新 · 下次约 ${d.next_refresh} · 各源合起来挑最快的 ${d.keep_total} 条放进订阅 · ${net}`;
     }
     const on = !!d.drop_vmess;
     document.getElementById('dropVm').checked = on;
     document.getElementById('dropVmWrap').classList.toggle('on', on);
-    document.getElementById('extRows').innerHTML = d.ext.map(e =>
-      `<b>${esc(e.label)}</b>：${e.fetched ? `解析 ${e.total} 个 → 存活 ${e.alive} → 订阅收录 ${e.keep} 个${e.alive && !e.keep ? '（存活的全是 VMess，被过滤掉了）' : ''} · ${esc(e.fetched)} 刷新` : '还没有数据，点"刷新外部源"拉一次'}`
-    ).join('<br>');
+    document.getElementById('extRows').innerHTML = d.ext.map(e => {
+      if (e.error) {
+        const when = e.failed_at ? `（${esc(e.failed_at)}）` : '';
+        const old = e.fetched ? `订阅里还是 ${esc(e.fetched)} 拿到的节点，照样能用` : '还没有可用节点';
+        const next = d.refreshing ? '这次正在重试，稍等' : `每 ${d.every_min} 分钟自动再试`;
+        return `<b>${esc(e.label)}</b>：<span style="color:#b45309">⚠️ 上次没更新成功${when}：${esc(e.error)}</span> · ${old} · ${next}`;
+      }
+      return `<b>${esc(e.label)}</b>：${e.fetched ? `共 ${e.total} 个链接 → 能连上 ${e.alive} 个${e.alive && !e.keep ? '（但全是 VMess，被过滤了）' : ` → 留下 ${e.keep} 个`} · ${esc(e.fetched)} 更新` : '还没有数据，点「立即更新」拉一次'}`;
+    }).join('<br>');
   } catch (e) { /* 服务未起时静默 */ }
 }
 
@@ -456,8 +469,8 @@ async function doDropVm(on) {
                                   body: JSON.stringify({drop_vmess: on})});
   const hint = document.getElementById('extDone');
   hint.innerHTML = on
-    ? '✅ 已过滤 VMess：订阅里只保留 vless / trojan / ss，节点数变少但更耐用。去客户端点一次「更新订阅」生效'
-    : '✅ 已放行 VMess：订阅恢复全部协议。去客户端点一次「更新订阅」生效';
+    ? '✅ 已去掉 VMess：订阅里只留 vless / trojan / ss，节点少了但更耐用。去客户端点一下「更新订阅」生效'
+    : '✅ 不再过滤：VMess 节点也放回订阅了。去客户端点一下「更新订阅」生效';
   hint.hidden = false;
 }
 
@@ -465,7 +478,7 @@ async function doExtRefresh() {
   const btn = document.getElementById('extBtn');
   btn.disabled = true;
   document.getElementById('extDone').hidden = true;  // 清掉上一轮的结果横幅
-  document.getElementById('extInfo').textContent = '⏳ 已开始：拉取外部订阅 → 解析全部链接 → 并行测活，预计 1 分钟…';
+  document.getElementById('extInfo').textContent = '⏳ 开始了：先下载这些源，再一个个试着连，大约 1 分钟…';
   await fetch('/api/ext_refresh', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
   loadExt();
 }

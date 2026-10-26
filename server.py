@@ -25,6 +25,8 @@ import yaml
 
 WARMING = False  # 冷启动预热中标志（预热线程完成后置 False）
 EXT_REFRESHING = False  # 外部订阅源刷新中标志
+EXT_ERRORS = {}         # 源 key -> 最近一次失败原因（成功即清除），用于界面显示"该源失效"
+EXT_ATTEMPT = {}        # 源 key -> 最近一次拉取尝试的时间戳（失败也记，避免自动刷新每分钟重试）
 
 # 外部公共订阅源（2026-10-26 实测存活率最高的两个）：拉取 -> 解析链接 -> TCP 测活 -> 只留活节点
 # mirror 是 jsDelivr CDN 兜底——raw.githubusercontent 在国内网络经常被重置
@@ -35,9 +37,15 @@ EXT_SOURCES = {
     "pawdroid":  dict(label="Pawdroid",
                       url="https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub",
                       mirror="https://cdn.jsdelivr.net/gh/Pawdroid/Free-servers@main/sub"),
+    # 每日自动更新，vless/trojan/ss 三协议互补（实测存活率 24%，是三个源里最高的）
+    "ermaozi":   dict(label="ermaozi",
+                      url="https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt",
+                      mirror="https://cdn.jsdelivr.net/gh/ermaozi/get_subscribe@main/subscribe/v2ray.txt"),
 }
 EXT_PROBE_LIMIT = 600  # 每源最多探测的节点数（控制刷新耗时在 1 分钟级）
-EXT_KEEP = 300         # 每源最多保留进订阅的活节点数（控制订阅体积）
+EXT_KEEP = 300         # 每源最多保留进缓存的活节点数（控制订阅体积）
+EXT_KEEP_TOTAL = 120   # 跨源合并后进订阅的条数上限（按延迟取最快的，客户端列表才不会长到没法用）
+EXT_REFRESH_MIN = 40   # 自动刷新间隔（分钟）：免费节点寿命是小时级，靠定时刷新比多接源有用
 # 免费源的 vmess 节点存活期通常只有半小时级，vless/trojan 明显耐用；默认过滤掉 vmess，可在面板上关掉
 _ext_cfg = dict(drop_vmess=True)
 
@@ -55,6 +63,121 @@ SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
 
+
+# ---------- 网络：本地代理自动探测 ----------
+# 为什么需要这一步：GitHub raw 和 jsDelivr 在国内直连基本是 TLS 被重置，而 urllib 只认
+# 环境变量和 Windows 系统代理——v2rayN 用 TUN 模式或没开系统代理时它一条都读不到，
+# 于是三个外部源一起报"拉取失败"，看着像源挂了，其实是本机请求根本没走代理。
+PROXY_CANDIDATES = ("127.0.0.1:10808", "127.0.0.1:10809", "127.0.0.1:10810",
+                    "127.0.0.1:7890", "127.0.0.1:7897", "127.0.0.1:1087", "127.0.0.1:8080")
+PROXY_TEST_HOST = ("raw.githubusercontent.com", 443)
+_PROXY = dict(url=None, ts=0.0)
+_PROXY_LOCK = threading.Lock()
+PROXY_OK_TTL = 600   # 探到可用代理后 10 分钟内复用，不再重探
+PROXY_FAIL_TTL = 90  # 没探到就 90 秒后再试（用户中途开 v2rayN 也能自动接上）
+
+
+def _http_connect_ok(host, port, timeout=2.5):
+    """这个本地端口能否当 HTTP 代理用：CONNECT 目标换来 200 隧道。顺手把 v2rayN 的混合入站认出来。"""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            s.settimeout(timeout)
+            th, tp = PROXY_TEST_HOST
+            s.sendall(f"CONNECT {th}:{tp} HTTP/1.1\r\nHost: {th}:{tp}\r\n\r\n".encode())
+            buf = b""
+            while b"\r\n" not in buf and len(buf) < 200:
+                chunk = s.recv(1)
+                if not chunk:
+                    break
+                buf += chunk
+            return b" 200" in buf.split(b"\r\n")[0]
+    except Exception:
+        return False
+
+
+def detect_proxy(force=False):
+    """返回可用的本机 HTTP 代理（如 http://127.0.0.1:10808），没有则 None。
+    优先级：PANEL_PROXY / 环境变量 HTTPS_PROXY > 常见客户端端口探测。结果带 TTL 缓存。"""
+    now = time.time()
+    with _PROXY_LOCK:
+        ttl = PROXY_OK_TTL if _PROXY["url"] else PROXY_FAIL_TTL
+        if not force and _PROXY["ts"] and now - _PROXY["ts"] < ttl:
+            return _PROXY["url"]
+
+        cands = []
+        for env_key in ("PANEL_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+            v = os.environ.get(env_key)
+            if v:
+                cands.append(v)
+        cands += [f"http://{p}" for p in PROXY_CANDIDATES]
+
+        found = None
+        for c in cands:
+            c = c.strip()
+            if not c:
+                continue
+            if "://" not in c:
+                c = "http://" + c
+            u = urllib.parse.urlparse(c)
+            if u.scheme not in ("http", "https") or not u.hostname or not u.port:
+                continue  # urllib 不支持 socks5，跳过（v2rayN 的 10808 混合入站本身就支持 HTTP）
+            if u.port == PORT:  # 别把自己当代理，会自己连自己
+                continue
+            if _http_connect_ok(u.hostname, u.port):
+                found = f"http://{u.hostname}:{u.port}"
+                break
+        _PROXY.update(url=found, ts=now)
+        if found:
+            print(f"网络：经本机代理 {found} 访问外网")
+        return found
+
+
+def _open_via(url, timeout, hdrs, proxy):
+    handlers = [urllib.request.ProxyHandler({"http": proxy, "https": proxy} if proxy else {}),
+                urllib.request.HTTPSHandler(context=SSL_CTX)]
+    return urllib.request.build_opener(*handlers).open(urllib.request.Request(url, headers=hdrs), timeout=timeout)
+
+
+def open_url(url, timeout=25, headers=None):
+    """统一的出网入口：探到本机代理就走代理，没探到就直连（忽略环境里可能存在的无关代理）。
+    代理中途没了（比如用户退出 v2rayN）要立刻作废缓存重探一次，否则最长 10 分钟都拿着死端口重试。"""
+    hdrs = {"User-Agent": "Mozilla/5.0 ChromeGoPanel"}
+    hdrs.update(headers or {})
+    proxy = detect_proxy()
+    try:
+        return _open_via(url, timeout, hdrs, proxy)
+    except Exception:
+        if not proxy:
+            raise
+        with _PROXY_LOCK:
+            _PROXY.update(url=None, ts=0.0)  # 这个代理已不可用，清掉缓存让下次重新探测
+        return _open_via(url, timeout, hdrs, detect_proxy(force=True))
+
+
+def _https_ok(host, port=443, timeout=4):
+    """真做一次 TLS 握手 + 发个 HEAD，才算"这个站能访问"。
+    只连 TCP 是不够的：GFW 往往放行 TCP 三次握手，然后在 TLS 阶段直接掐掉，
+    于是"连得上"却"取不到"，用 connect 判断会得出相反的结论。"""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            with SSL_CTX.wrap_socket(s, server_hostname=host) as t:
+                t.sendall(f"HEAD / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+                return b"HTTP/" in t.recv(64)
+    except Exception:
+        return False
+
+
+def net_diagnosis():
+    """把"两个源都失败"翻译成人话：断网 / 没走代理 / 源真挂了，三种原因处理方式完全不同。"""
+    proxy = detect_proxy()
+    if proxy:
+        return f"已经在借 {proxy} 的代理上网，可能是对方源临时挂了，等下轮自动再试"
+    if _https_ok(PROXY_TEST_HOST[0], PROXY_TEST_HOST[1]):
+        return "能访问 GitHub，但这次没取到内容，可能作者改了地址，也可能是网络抽风"
+    return ("这台电脑连不上 GitHub（TLS 被掐），也没找到可用的代理 —— 先把 v2rayN 打开"
+            "（系统代理开不开都行，它的本地端口在就行），再点一次更新；"
+            "想固定用某个代理端口，设环境变量 PANEL_PROXY=http://127.0.0.1:10808 后重启面板")
+
 TOOLS = {
     "xray":       dict(label="Xray",        sub="VLESS / REALITY",      config="config.json", remote="xray",       slots=4),
     "clash.meta": dict(label="Clash.Meta",  sub="Hysteria / Hysteria2", config="config.yaml", remote="clash.meta2", slots=6),
@@ -70,7 +193,7 @@ TOOL_BADGE = {
     "xray":      ("v2rayN 可导入", "ok"),
     "hysteria2": ("v2rayN 可导入", "ok"),
     "clash.meta": ("v2rayN 可导入", "ok"),
-    "singbox":   ("看槽位内容", "mid"),   # 槽位可能是 TUIC(可导入) 或 hysteria v1(不可)
+    "singbox":   ("看具体配置", "mid"),   # 槽位可能是 TUIC(可导入) 或 hysteria v1(不可)
     "hysteria":  ("v2rayN 不支持", "no"),
     "naiveproxy": ("v2rayN 不支持", "no"),
     "juicity":   ("v2rayN 不支持", "no"),
@@ -85,8 +208,7 @@ def fetch_remote(tool_key: str, slot: int):
     for source, tpl in (("gitlab", GITLAB_TPL), ("mirror", MIRROR_TPL)):
         url = tpl.format(remote=t["remote"], slot=slot, filename=t["config"])
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 ChromeGoPanel"})
-            with urllib.request.urlopen(req, timeout=20, context=SSL_CTX) as r:
+            with open_url(url, timeout=20) as r:
                 if r.status != 200:
                     raise OSError(f"HTTP {r.status}")
                 text = r.read().decode("utf-8", errors="replace")
@@ -95,7 +217,7 @@ def fetch_remote(tool_key: str, slot: int):
                 return text, source
         except Exception as e:
             errors.append(f"{source}: {e}")
-    raise RuntimeError("两个源都拉取失败：" + " | ".join(errors))
+    raise RuntimeError(net_diagnosis())
 
 
 # ---------- 缓存 ----------
@@ -781,8 +903,7 @@ def refresh_ext(key):
     text, source = None, None
     for i, url in enumerate((src["url"], src["mirror"], src["url"])):  # raw -> jsDelivr -> raw 重试
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 ChromeGoPanel"})
-            with urllib.request.urlopen(req, timeout=45) as r:
+            with open_url(url, timeout=45) as r:
                 text = r.read().decode("utf-8", errors="replace")
             source = "jsDelivr" if i == 1 else "github"
             break
@@ -790,7 +911,7 @@ def refresh_ext(key):
             if i < 2:
                 time.sleep(2)
     if text is None:
-        raise RuntimeError("主源和镜像都拉取失败")
+        raise RuntimeError(net_diagnosis())
     if "://" not in text[:4000]:  # 整体 base64 的订阅
         text = base64.b64decode(text.strip() + "=" * (-len(text.strip()) % 4)).decode("utf-8", "replace")
     links, seen = [], set()
@@ -814,7 +935,7 @@ def refresh_ext(key):
 
 
 def ext_alive():
-    """全部外部源的存活节点，跨源按 (协议,地址,端口) 再去重一次。"""
+    """全部外部源的存活节点：跨源按 (协议,地址,端口) 去重，按延迟排序后取前 EXT_KEEP_TOTAL 条。"""
     out, seen = [], set()
     for key in EXT_SOURCES:
         f = ext_cache_file(key)
@@ -830,28 +951,73 @@ def ext_alive():
             p = _parse_link(n["url"])
             if p and p not in seen:
                 seen.add(p)
-                out.append((n["url"], n["name"], n["ms"], d.get("fetched", "")))
-    return out
+                out.append((n["url"], n["name"], n.get("ms", 9999), d.get("fetched", "")))
+    out.sort(key=lambda x: x[2])  # 延迟升序：订阅里先出现最快的
+    return out[:EXT_KEEP_TOTAL]
+
+
+def ext_stale():
+    """任一源需要刷新 -> True。用"最近一次尝试"而不是只看缓存 mtime：
+    刷新失败的源 mtime 不会更新，只看 mtime 会导致每分钟重试、把失败源反复打一遍。"""
+    now = time.time()
+    for key in EXT_SOURCES:
+        f = ext_cache_file(key)
+        last = max(f.stat().st_mtime if f.exists() else 0, EXT_ATTEMPT.get(key, 0))
+        if now - last > EXT_REFRESH_MIN * 60:
+            return True
+    return False
+
+
+def next_refresh_at():
+    """下一次自动刷新的预计时间（取最早到期的那个源）；有源从没拉过就返回"即将"。"""
+    nxt = []
+    for key in EXT_SOURCES:
+        f = ext_cache_file(key)
+        last = max(f.stat().st_mtime if f.exists() else 0, EXT_ATTEMPT.get(key, 0))
+        if not last:
+            return "即将"
+        nxt.append(last + EXT_REFRESH_MIN * 60)
+    return datetime.fromtimestamp(min(nxt)).strftime("%H:%M") if nxt else "即将"
 
 
 def refresh_ext_all(background=True):
-    """刷新全部外部源。默认后台跑（全量测活要 1-2 分钟），立即返回。"""
+    """刷新全部外部源。默认后台跑（全量测活要 1-2 分钟），立即返回。已在刷新时直接跳过。"""
     global EXT_REFRESHING
+    if EXT_REFRESHING:
+        return False
+    EXT_REFRESHING = True
+
     def work():
         global EXT_REFRESHING
-        EXT_REFRESHING = True
         try:
             for key in EXT_SOURCES:
+                EXT_ATTEMPT[key] = time.time()
                 try:
                     refresh_ext(key)
+                    EXT_ERRORS.pop(key, None)
                 except Exception as e:
+                    EXT_ERRORS[key] = str(e)
                     print(f"外部源 {key} 刷新失败: {e}")
         finally:
             EXT_REFRESHING = False
+
     if background:
         threading.Thread(target=work, daemon=True).start()
     else:
         work()
+    return True
+
+
+def auto_refresh_ext():
+    """后台定时刷新：每分钟检查一次缓存年龄，超过 EXT_REFRESH_MIN 就重新拉一遍。
+    免费节点寿命是小时级，自动刷新比多接几个源有用得多。"""
+    while True:
+        try:
+            if ext_stale():
+                refresh_ext_all(background=False)
+        except Exception as e:
+            print(f"自动刷新异常: {e}")
+        time.sleep(60)
 
 
 # ---------- 本地状态 ----------
@@ -864,7 +1030,7 @@ def local_summary(tool_key: str):
         nodes, _ = parse_config_text(best.read_text(encoding="utf-8", errors="replace"), f"{t['label']}-ip{slot}")
         return dict(node=nodes[0], count=len(nodes),
                     mtime=datetime.fromtimestamp(best.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
-                    source=f"上次拉取(ip{slot})")
+                    source=f"上次拉的（源{slot}）")
     return None
 
 
@@ -919,8 +1085,15 @@ class Handler(BaseHTTPRequestHandler):
                                 alive=d.get("alive"), keep=keep)
                 except Exception:
                     info.update(fetched=None, total=None, alive=None, keep=0)
+                info["failed_at"] = (datetime.fromtimestamp(EXT_ATTEMPT[key]).strftime("%H:%M")
+                                     if key in EXT_ATTEMPT else None)  # 失败原因属于哪一轮，避免旧失败记录误导
+                info["error"] = EXT_ERRORS.get(key)
                 exts.append(info)
-            self._json(dict(ext=exts, refreshing=EXT_REFRESHING, drop_vmess=_ext_cfg["drop_vmess"]))
+            proxy = _PROXY["url"]  # 只回缓存值，不在请求线程里现探（探测最长十几秒）
+            self._json(dict(ext=exts, refreshing=EXT_REFRESHING, drop_vmess=_ext_cfg["drop_vmess"],
+                            keep_total=EXT_KEEP_TOTAL, every_min=EXT_REFRESH_MIN,
+                            proxy=proxy, proxy_checked=bool(_PROXY["ts"]),
+                            next_refresh=next_refresh_at()))
         elif self.path == "/sub":
             ua = self.headers.get("User-Agent", "").lower()
             if "clash" in ua or "mihomo" in ua:
@@ -960,11 +1133,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             slot = int(body.get("slot", 1))
         except (TypeError, ValueError):
-            return self._json(dict(error="slot 必须是数字"), 400)
+            return self._json(dict(error="源编号必须是数字"), 400)
         if tool not in TOOLS:
             return self._json(dict(error=f"未知工具 {tool}"), 400)
         if not (1 <= slot <= TOOLS[tool]["slots"]):
-            return self._json(dict(error=f"槽位超出范围，该工具只有 ip1~ip{TOOLS[tool]['slots']}"), 400)
+            return self._json(dict(error=f"没有这个源，{TOOLS[tool]['label']} 只有源1~源{TOOLS[tool]['slots']}"), 400)
         try:
             text, source = fetch_remote(tool, slot)
             nodes, _ = parse_config_text(text, f"{TOOLS[tool]['label']}-ip{slot}")
@@ -991,9 +1164,8 @@ def main():
         print("预热完成：全部槽位缓存就绪")
     WARMING = True
     threading.Thread(target=_warm, daemon=True).start()
-    # 外部源：本地没有缓存时（首次启动）自动拉一次；之后靠面板上的"刷新外部源"手动更新
-    if not all(ext_cache_file(k).exists() for k in EXT_SOURCES):
-        threading.Thread(target=lambda: refresh_ext_all(background=False), daemon=True).start()
+    # 外部源：每分钟检查缓存年龄，超过 40 分钟就自动重拉（首次启动缓存为空也会立刻拉）
+    threading.Thread(target=auto_refresh_ext, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 
