@@ -38,6 +38,8 @@ EXT_SOURCES = {
 }
 EXT_PROBE_LIMIT = 600  # 每源最多探测的节点数（控制刷新耗时在 1 分钟级）
 EXT_KEEP = 300         # 每源最多保留进订阅的活节点数（控制订阅体积）
+# 免费源的 vmess 节点存活期通常只有半小时级，vless/trojan 明显耐用；默认过滤掉 vmess，可在面板上关掉
+_ext_cfg = dict(drop_vmess=True)
 
 PANEL_DIR = Path(__file__).resolve().parent
 CACHE_DIR = PANEL_DIR / "cache"
@@ -137,13 +139,14 @@ def _proto_key(protocol):
 
 # 各协议的客户端支持矩阵（截至 v2rayN 7.x 时代的生态）：在集合里=✅，否则=❌
 _ALL_CLIENTS = ["v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"]
+_ALL_OK = set(_ALL_CLIENTS)
 SUPPORT = {
-    "vless":       {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
-    "vmess":       {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
-    "trojan":      {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
-    "shadowsocks": {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
-    "hysteria2":   {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
-    "tuic":        {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
+    "vless":       _ALL_OK,
+    "vmess":       _ALL_OK,
+    "trojan":      _ALL_OK,
+    "shadowsocks": _ALL_OK,
+    "hysteria2":   _ALL_OK,
+    "tuic":        _ALL_OK,
     # hysteria v1：sing-box 和 v2rayN 都删了，但 mihomo 和 NekoRay 还活着
     "hysteria":    {"NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）", "ChromeGo 自带 hysteria.exe"},
     "naive":       {"NekoRay / NekoBox", "ChromeGo 自带 naive.exe（官方核心）"},
@@ -522,11 +525,9 @@ def iter_unique_links(v2n_only=True):
             seen.add(fpk)
             for l in n["links"]:
                 yield l["url"], l["name"]
-    # 外部公共源：进来前已经过 TCP 存活探测，只有活节点（TCP 协议，天然 v2rayN 可导入）
+    # 外部公共源：进来前已经过真握手测活，且内部已按 (协议,地址,端口) 去重，直接追加
     for url, name, _, _ in ext_alive():
-        if url not in seen:
-            seen.add(url)
-            yield url, name
+        yield url, name
 
 
 def build_sub():
@@ -535,17 +536,27 @@ def build_sub():
     return base64.b64encode("\n".join(urls).encode()).decode()
 
 
+_VMESS_TLS = ("tls", True, "1")  # vmess 的 tls 字段在 base64 JSON 里，各家源写法不一
+
+
+def _vmess_json(url):
+    """vmess:// 的 base64 JSON 体；坏链接返回 None。
+    body 里可能含 "/"，所以只能按前缀切，不能交给 urlparse。"""
+    body = url[8:].split("#", 1)[0]
+    try:
+        return json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
+    except Exception:
+        return None
+
+
 def link_name(url):
     """节点显示名：优先 URL fragment，vmess 取 JSON 里的 ps 字段。"""
     u = urllib.parse.urlparse(url)
     if u.fragment:
         return urllib.parse.unquote(u.fragment)
     if url.startswith("vmess://"):
-        try:
-            body = url[8:].split("#", 1)[0]
-            return json.loads(base64.b64decode(body + "=" * (-len(body) % 4))).get("ps") or "节点"
-        except Exception:
-            pass
+        d = _vmess_json(url) or {}
+        return d.get("ps") or "节点"
     return "节点"
 
 
@@ -554,24 +565,22 @@ def _clash_proxy(url, name):
     u = urllib.parse.urlparse(url)
     q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
     ins = {"skip-cert-verify": True}
-    if u.scheme == "vmess":  # vmess 是 base64 JSON；body 里可能含 "/"，不能取 netloc（会被当路径截断）
-        try:
-            body = url[8:].split("#", 1)[0]
-            d = json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
-        except Exception:
+    if u.scheme == "vmess":
+        d = _vmess_json(url)
+        if not d:
             return None  # 坏链接：公共源里难免混入，跳过比打挂整个订阅好
         p = dict(name=name, type="vmess", server=d.get("add"), port=int(d.get("port") or 0),
                  uuid=d.get("id"), alterId=int(d.get("aid") or 0),
                  cipher=d.get("scy") or d.get("cipher") or "auto", udp=True)
-        if d.get("tls") == "tls":
+        if d.get("tls") in _VMESS_TLS:
             p["tls"] = True
             if d.get("sni"):
                 p["servername"] = d["sni"]
         net = d.get("net")
-        if net in ("ws", "h2", "http"):
-            p["network"] = "ws" if net == "ws" else "h2"
+        if net in ("ws", "h2", "http"):  # http 是 tcp+HTTP 伪装，别错当 h2
+            p["network"] = net
             if d.get("path"):
-                p["ws-opts" if net == "ws" else "h2-opts"] = {"path": d["path"]}
+                p[f"{net}-opts"] = {"path": d["path"]}
             if net == "ws" and d.get("host"):
                 p.setdefault("ws-opts", {}).setdefault("headers", {})["Host"] = d["host"]
         return p
@@ -644,47 +653,40 @@ def build_sub_clash():
     """Clash / Mihomo 订阅（YAML）。比 base64 订阅多收 hysteria v1，少 naive/juicity。"""
     proxies, names, taken = [], [], set()
     for url, _ in iter_unique_links(v2n_only=False):
-        scheme = urllib.parse.urlparse(url).scheme
-        if scheme not in ("vless", "trojan", "ss", "vmess", "hysteria", "hysteria2", "tuic"):
-            continue
         base = link_name(url)
         name, i = base, 2
         while name in taken:
             name = f"{base} {i}"
             i += 1
-        p = _clash_proxy(url, name)
+        p = _clash_proxy(url, name)  # 不支持的协议（naive/juicity）在这里返回 None
         if p:
             proxies.append(p)
             names.append(name)
             taken.add(name)
     if not proxies:
         return "proxies: []\n"
-    # 最小可运行配置：一个手动选择组 + 一个自动测速组，Verge 导入即用
+    # 最小可运行配置：手动选择组 + 自动测速组（免费节点死得快，让 url-test 自己挑活的）
     return yaml.dump({
         "proxies": proxies,
         "proxy-groups": [
             {"name": "🚀 节点选择", "type": "select", "proxies": ["♻️ 自动选择"] + names},
             {"name": "♻️ 自动选择", "type": "url-test", "proxies": list(names),
-             "url": "http://www.gstatic.com/generate_204", "interval": 300},
+             "url": "http://www.gstatic.com/generate_204", "interval": 120,
+             "tolerance": 100, "lazy": True, "max-fails": 3},
         ],
         "rules": ["MATCH,🚀 节点选择"],
     }, allow_unicode=True, sort_keys=False)
 
 
 # ---------- 外部公共订阅源 ----------
-_EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")  # UDP 协议（hysteria 系）无法 TCP 测活，外部源只收这四种
-
+_EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")  # UDP 协议（hysteria 系）无法握手测活，外部源只收这四种
 
 def _parse_link(link):
     """分享链接 -> (scheme, host, port)，用于去重和测活。vmess 的地址在 base64 JSON 里。"""
     scheme, _, rest = link.partition("://")
     if scheme == "vmess":
-        try:
-            body = rest.split("#", 1)[0]
-            d = json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
-            return scheme, d.get("add"), int(d.get("port") or 0)
-        except Exception:
-            return None
+        d = _vmess_json(link) or {}
+        return (scheme, d.get("add"), int(d.get("port") or 0)) if d.get("add") else None
     try:
         u = urllib.parse.urlparse(link)
         return (scheme, u.hostname, u.port) if u.hostname and u.port else None
@@ -692,22 +694,80 @@ def _parse_link(link):
         return None
 
 
-def _tcp_probe(host, port):
-    """TCP 握手测活，返回耗时 ms 或 None。遍历全部地址族，避免 IPv6 优先时误判。"""
+def _link_tls(link):
+    """链接是否走 TLS 及其 SNI。vmess 看 JSON 的 tls 字段，其余看 security 查询参数。"""
+    scheme, _, rest = link.partition("://")
+    if scheme == "vmess":
+        d = _vmess_json(link) or {}
+        return d.get("tls") in _VMESS_TLS, d.get("sni") or d.get("host") or ""
+    try:
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)
+        return (q.get("security") or [""])[0] in ("tls", "reality"), \
+            (q.get("sni") or q.get("host") or [""])[0]
+    except Exception:
+        return False, ""
+
+
+def _link_ws(link):
+    """ws/httpupgrade 传输的 (HTTP Host, path)，用于 101 升级探测；非 ws 传输返回 None。"""
+    scheme, _, _ = link.partition("://")
+    if scheme == "vmess":
+        d = _vmess_json(link) or {}
+        return (d.get("host") or "", d.get("path") or "/") if d.get("net") in ("ws", "httpupgrade") else None
+    try:
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)
+        if (q.get("type") or ["tcp"])[0] in ("ws", "httpupgrade"):
+            return (q.get("host") or [""])[0], (q.get("path") or ["/"])[0]
+        return None
+    except Exception:
+        return None
+
+
+def _probe_link(link):
+    """真握手测活，返回 ms 或 None。TLS 节点必须完成 SSL 握手；ws/httpupgrade 节点还要求服务器
+    返回 101 升级成功——挡掉 CDN 边缘 TCP 通但节点实际已死的链接（公共源里占大头）。"""
+    p = _parse_link(link)
+    if not p:
+        return None
+    _, host, port = p
+    use_tls, sni = _link_tls(link)
+    ws = _link_ws(link)
     try:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except Exception:
         return None
     for af, st, pr, _, sa in infos:
-        t0 = time.time()
+        s = None
         try:
             s = socket.socket(af, st, pr)
-            s.settimeout(3)
+            s.settimeout(4)
+            t0 = time.time()
             s.connect(sa)
-            s.close()
+            if use_tls:  # 复用模块级 context：每节点新建要重复加载根证书，几百个节点很贵
+                s = SSL_CTX.wrap_socket(s, server_hostname=sni or host)
+            if ws is not None:
+                hhost, path = ws
+                s.sendall((f"GET {path} HTTP/1.1\r\nHost: {hhost or sni or host}\r\n"
+                           "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                           "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                           "Sec-WebSocket-Version: 13\r\n\r\n").encode())
+                buf = b""
+                while b"\n" not in buf and len(buf) < 256:
+                    chunk = s.recv(128)
+                    if not chunk:
+                        break
+                    buf += chunk
+                if b" 101" not in buf.split(b"\n", 1)[0]:
+                    raise OSError("ws 升级失败")
             return (time.time() - t0) * 1000
         except Exception:
             continue
+        finally:
+            if s:
+                try:
+                    s.close()
+                except Exception:
+                    pass
     return None
 
 
@@ -716,7 +776,7 @@ def ext_cache_file(key):
 
 
 def refresh_ext(key):
-    """拉取一个外部源 -> 解析去重 -> 并行 TCP 测活 -> 按延迟保留前 EXT_KEEP 个活节点写缓存。"""
+    """拉取一个外部源 -> 解析去重 -> 并行真握手测活 -> 按延迟保留前 EXT_KEEP 个活节点写缓存。"""
     src = EXT_SOURCES[key]
     text, source = None, None
     for i, url in enumerate((src["url"], src["mirror"], src["url"])):  # raw -> jsDelivr -> raw 重试
@@ -740,9 +800,11 @@ def refresh_ext(key):
         if p and p[0] in _EXT_TCP_SCHEMES and p not in seen:
             seen.add(p)
             links.append(line)
-    pairs = [(l, _parse_link(l)) for l in links[:EXT_PROBE_LIMIT]]
+    # 按序截断前先把非 vmess 排前面：ALIILAPRO 的 vless 全堆在文件末尾，不排就一条都测不到
+    links.sort(key=lambda l: l.startswith("vmess://"))
+    pairs = links[:EXT_PROBE_LIMIT]
     with ThreadPoolExecutor(max_workers=60) as ex:
-        results = list(ex.map(lambda x: (x[0], _tcp_probe(x[1][1], x[1][2])), pairs))
+        results = list(ex.map(lambda l: (l, _probe_link(l)), pairs))
     alive = sorted((ms, url) for url, ms in results if ms is not None)
     data = dict(fetched=datetime.now().strftime("%Y-%m-%d %H:%M"), source=source,
                 total=len(links), alive=len(alive),
@@ -763,6 +825,8 @@ def ext_alive():
         except Exception:
             continue
         for n in d.get("nodes", []):
+            if _ext_cfg["drop_vmess"] and n["url"].startswith("vmess://"):
+                continue
             p = _parse_link(n["url"])
             if p and p not in seen:
                 seen.add(p)
@@ -848,12 +912,15 @@ class Handler(BaseHTTPRequestHandler):
                 f = ext_cache_file(key)
                 try:
                     d = json.loads(f.read_text(encoding="utf-8"))
+                    nodes = d.get("nodes", [])
+                    keep = sum(1 for n in nodes
+                               if not (_ext_cfg["drop_vmess"] and n["url"].startswith("vmess://")))
                     info.update(fetched=d.get("fetched"), total=d.get("total"),
-                                alive=d.get("alive"), keep=len(d.get("nodes", [])))
+                                alive=d.get("alive"), keep=keep)
                 except Exception:
                     info.update(fetched=None, total=None, alive=None, keep=0)
                 exts.append(info)
-            self._json(dict(ext=exts, refreshing=EXT_REFRESHING))
+            self._json(dict(ext=exts, refreshing=EXT_REFRESHING, drop_vmess=_ext_cfg["drop_vmess"]))
         elif self.path == "/sub":
             ua = self.headers.get("User-Agent", "").lower()
             if "clash" in ua or "mihomo" in ua:
@@ -871,8 +938,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(error="请求体不是合法 JSON"), 400)
 
         if self.path == "/api/ext_refresh":
+            if EXT_REFRESHING:  # 连点两下别起两个线程同时测活
+                return self._json(dict(ok=True, hint="已在刷新中"))
             refresh_ext_all(background=True)
             return self._json(dict(ok=True, hint="后台刷新中，约 1-2 分钟后完成"))
+
+        if self.path == "/api/ext_filter":
+            _ext_cfg["drop_vmess"] = bool(body.get("drop_vmess"))
+            return self._json(dict(ok=True, drop_vmess=_ext_cfg["drop_vmess"]))
 
         if self.path == "/api/fetch_all":
             try:

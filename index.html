@@ -176,8 +176,10 @@
     background: rgba(124, 58, 237, .05);
     border-radius: 12px; padding: 10px 16px; margin-top: 14px;
   }
-  .empty { color: var(--muted); text-align: center; padding: 70px 0 }
-  footer { border-top: 1px solid var(--line); padding: 28px 0; text-align: center; color: var(--muted); font-size: 13px }
+  .tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none }
+  .tog input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer }
+  .tog.on { color: var(--text); font-weight: 600 }
+  .empty { color: var(--muted); text-align: center; padding: 70px 0 }  footer { border-top: 1px solid var(--line); padding: 28px 0; text-align: center; color: var(--muted); font-size: 13px }
   @media (max-width: 720px) {
     .cols { flex-direction: column }
     .tools { width: 100% }
@@ -223,6 +225,9 @@
         <span class="desc" style="margin:0; font-weight:700">🌐 外部公共源</span>
         <span class="desc" style="margin:0" id="extInfo">加载中…</span>
         <button class="btn" id="extBtn" onclick="doExtRefresh()">🌐 刷新外部源</button>
+        <label class="tog" id="dropVmWrap" title="免费源的 VMess 节点通常半小时内就失效，过滤后订阅更耐用">
+          <input type="checkbox" id="dropVm" onchange="doDropVm(this.checked)"> 过滤 VMess
+        </label>
       </div>
       <div class="src" id="extRows" style="margin-top:4px"></div>
       <div class="hint-ok" id="extDone" hidden style="margin-top:10px"></div>
@@ -423,7 +428,7 @@ async function loadExt() {
     const btn = document.getElementById('extBtn');
     if (d.refreshing) {
       _extWasRefreshing = true;
-      document.getElementById('extInfo').textContent = '⏳ 正在拉取订阅 → 解析链接 → 并行 TCP 测活（约 1-2 分钟，可以先干别的）…';
+      document.getElementById('extInfo').textContent = '⏳ 正在拉取订阅 → 解析链接 → 并行真握手测活（约 1 分钟，可以先干别的）…';
       btn.disabled = true;
       setTimeout(loadExt, 8000);
     } else {
@@ -434,19 +439,33 @@ async function loadExt() {
         done.innerHTML = `✅ 外部源刷新完成：${d.ext.map(e => `<b>${esc(e.label)}</b> 存活 ${e.alive}/${e.total}、订阅收录 ${e.keep} 个`).join('；')}。节点已按快慢排序并入订阅 —— 去 v2rayN / Clash Verge 点一下「更新订阅」就能用`;
         done.hidden = false;
       }
-      document.getElementById('extInfo').textContent = 'TCP 测活后的节点自动进订阅，按延迟排序';
+      document.getElementById('extInfo').textContent = '真握手测活（TLS + WebSocket 101）后的节点自动进订阅，按延迟排序';
     }
+    const on = !!d.drop_vmess;
+    document.getElementById('dropVm').checked = on;
+    document.getElementById('dropVmWrap').classList.toggle('on', on);
     document.getElementById('extRows').innerHTML = d.ext.map(e =>
-      `<b>${esc(e.label)}</b>：${e.fetched ? `解析 ${e.total} 个 → 存活 ${e.alive} → 订阅收录 ${e.keep} 个 · ${esc(e.fetched)} 刷新` : '还没有数据，点"刷新外部源"拉一次'}`
+      `<b>${esc(e.label)}</b>：${e.fetched ? `解析 ${e.total} 个 → 存活 ${e.alive} → 订阅收录 ${e.keep} 个${e.alive && !e.keep ? '（存活的全是 VMess，被过滤掉了）' : ''} · ${esc(e.fetched)} 刷新` : '还没有数据，点"刷新外部源"拉一次'}`
     ).join('<br>');
   } catch (e) { /* 服务未起时静默 */ }
+}
+
+async function doDropVm(on) {
+  document.getElementById('dropVmWrap').classList.toggle('on', on);
+  await fetch('/api/ext_filter', {method:'POST', headers:{'Content-Type':'application/json'},
+                                  body: JSON.stringify({drop_vmess: on})});
+  const hint = document.getElementById('extDone');
+  hint.innerHTML = on
+    ? '✅ 已过滤 VMess：订阅里只保留 vless / trojan / ss，节点数变少但更耐用。去客户端点一次「更新订阅」生效'
+    : '✅ 已放行 VMess：订阅恢复全部协议。去客户端点一次「更新订阅」生效';
+  hint.hidden = false;
 }
 
 async function doExtRefresh() {
   const btn = document.getElementById('extBtn');
   btn.disabled = true;
   document.getElementById('extDone').hidden = true;  // 清掉上一轮的结果横幅
-  document.getElementById('extInfo').textContent = '⏳ 已开始：拉取外部订阅 → 解析全部链接 → 并行测活，预计 1-2 分钟…';
+  document.getElementById('extInfo').textContent = '⏳ 已开始：拉取外部订阅 → 解析全部链接 → 并行测活，预计 1 分钟…';
   await fetch('/api/ext_refresh', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
   loadExt();
 }
