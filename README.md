@@ -9,7 +9,7 @@ pip install -r requirements.txt
 python server.py
 ```
 
-打开 http://127.0.0.1:8765 ，订阅地址 http://127.0.0.1:8765/sub 可直接填进 v2rayN（订阅 → 添加订阅，拉完后点"更新订阅"）。
+打开 http://127.0.0.1:8765 ，订阅地址 http://127.0.0.1:8765/sub 按客户端 User-Agent 自动分流格式：v2rayN 拿到 base64 分享链接列表，Clash Verge / mihomo 系拿到 YAML 配置（含 hysteria v1，不含 naive/juicity）。
 
 ## 依赖
 

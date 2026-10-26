@@ -489,24 +489,122 @@ def aggregate_unique(refresh=False):
     return unique, errors
 
 
-def build_sub():
-    """把缓存里全部去重后的可用链接聚合成 v2rayN 订阅（base64）。"""
-    lines, seen = [], set()
+def iter_unique_links(v2n_only=True):
+    """全部缓存去重后的可用链接，yield (url, label)。v2rayN 订阅和 Clash 订阅共用这条去重管线。"""
+    seen = set()
     for key, s in _all_jobs():
         text = read_cached(key, s)
         if not text:
             continue
         nodes, _ = parse_config_text(text, f"{TOOLS[key]['label']}-源{s}")
         for n in nodes:
-            if not n["v2n"]:
+            if v2n_only and not n["v2n"]:
                 continue  # v2rayN 不支持的协议不进订阅，避免噪音
             fpk = (n["protocol"], n["server"], str(n["port"]), str(n["auth"]))
             if fpk in seen:
                 continue
             seen.add(fpk)
             for l in n["links"]:
-                lines.append(l["url"])
-    return base64.b64encode("\n".join(lines).encode()).decode()
+                yield l["url"], l["name"]
+
+
+def build_sub():
+    """v2rayN 订阅（base64 分享链接列表）。"""
+    urls = [url for url, _ in iter_unique_links()]
+    return base64.b64encode("\n".join(urls).encode()).decode()
+
+
+def _clash_proxy(url, name):
+    """分享链接 -> mihomo 代理 dict。字段来源与生成链接时一一对应。"""
+    u = urllib.parse.urlparse(url)
+    q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+    ins = {"skip-cert-verify": True}
+    if u.scheme == "vless":
+        net = q.get("type", "tcp")
+        p = dict(name=name, type="vless", server=u.hostname, port=u.port, uuid=u.username,
+                 udp=True, network=net, tls=q.get("security") in ("tls", "reality"),
+                 servername=q.get("sni", ""))
+        if q.get("fp"):
+            p["client-fingerprint"] = q["fp"]
+        if q.get("security") == "reality":
+            p["reality-opts"] = {"public-key": q["pbk"], "short-id": q.get("sid", "")}
+        if net in ("ws", "http") and q.get("path"):
+            p["ws-opts" if net == "ws" else "http-opts"] = {"path": q["path"]}
+        return p
+    if u.scheme == "trojan":
+        p = dict(name=name, type="trojan", server=u.hostname, port=u.port, udp=True,
+                 password=urllib.parse.unquote(u.username or ""), sni=q.get("sni", ""))
+        if q.get("allowInsecure") == "1":
+            p.update(ins)
+        return p
+    if u.scheme == "ss":
+        raw = u.username or ""
+        cipher, _, pw = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode().partition(":")
+        return dict(name=name, type="ss", server=u.hostname, port=u.port,
+                    cipher=cipher, password=pw, udp=True)
+    if u.scheme == "hysteria2":
+        auth = urllib.parse.unquote(u.username or "")
+        if u.password:
+            auth += ":" + urllib.parse.unquote(u.password)
+        p = dict(name=name, type="hysteria2", server=u.hostname, port=u.port, password=auth,
+                 sni=q.get("sni", ""))
+        if q.get("insecure") == "1":
+            p.update(ins)
+        if q.get("upmbps"):
+            p.update(up=int(q["upmbps"]), down=int(q.get("downmbps", q["upmbps"])))
+        return p
+    if u.scheme == "hysteria":  # v1：v2rayN 不认但 mihomo 支持，mac 用户正好用得上
+        p = dict(name=name, type="hysteria", server=u.hostname, port=u.port, protocol="udp",
+                 sni=q.get("peer", ""), alpn=[q.get("alpn", "h3")])
+        p["auth-str"] = q.get("auth", "")
+        if q.get("insecure") == "1":
+            p.update(ins)
+        if q.get("upmbps"):
+            p.update(up=int(q["upmbps"]), down=int(q.get("downmbps", q["upmbps"])))
+        return p
+    if u.scheme == "tuic":
+        p = dict(name=name, type="tuic", server=u.hostname, port=u.port, uuid=u.username,
+                 password=urllib.parse.unquote(u.password or ""),
+                 congestion_controller=q.get("congestion_control", "bbr"))
+        if q.get("alpn"):
+            p["alpn"] = q["alpn"].split(",")
+        if q.get("sni"):
+            p["sni"] = q["sni"]
+        if q.get("allow_insecure") == "1":
+            p.update(ins)
+        return p
+    return None  # naive / juicity：mihomo 不支持
+
+
+def build_sub_clash():
+    """Clash / Mihomo 订阅（YAML）。比 base64 订阅多收 hysteria v1，少 naive/juicity。"""
+    proxies, names, taken = [], [], set()
+    for url, _ in iter_unique_links(v2n_only=False):
+        scheme = urllib.parse.urlparse(url).scheme
+        if scheme not in ("vless", "trojan", "ss", "hysteria", "hysteria2", "tuic"):
+            continue
+        base = urllib.parse.unquote(urllib.parse.urlparse(url).fragment) or "节点"
+        name, i = base, 2
+        while name in taken:
+            name = f"{base} {i}"
+            i += 1
+        p = _clash_proxy(url, name)
+        if p:
+            proxies.append(p)
+            names.append(name)
+            taken.add(name)
+    if not proxies:
+        return "proxies: []\n"
+    # 最小可运行配置：一个手动选择组 + 一个自动测速组，Verge 导入即用
+    return yaml.dump({
+        "proxies": proxies,
+        "proxy-groups": [
+            {"name": "🚀 节点选择", "type": "select", "proxies": ["♻️ 自动选择"] + names},
+            {"name": "♻️ 自动选择", "type": "url-test", "proxies": list(names),
+             "url": "http://www.gstatic.com/generate_204", "interval": 300},
+        ],
+        "rules": ["MATCH,🚀 节点选择"],
+    }, allow_unicode=True, sort_keys=False)
 
 
 # ---------- 本地状态 ----------
@@ -561,7 +659,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(dict(panel_dir=str(PANEL_DIR), tools=tools, warming=WARMING,
                             sub_url=f"http://127.0.0.1:{PORT}/sub"))
         elif self.path == "/sub":
-            self._send(build_sub().encode("utf-8"), "text/plain; charset=utf-8")
+            ua = self.headers.get("User-Agent", "").lower()
+            if "clash" in ua or "mihomo" in ua:
+                # Clash Verge 等只认 YAML 格式订阅，v2rayN 认 base64 链接列表，按 UA 分流
+                self._send(build_sub_clash().encode("utf-8"), "text/yaml; charset=utf-8")
+            else:
+                self._send(build_sub().encode("utf-8"), "text/plain; charset=utf-8")
         else:
             self._json(dict(error="not found"), 404)
 
