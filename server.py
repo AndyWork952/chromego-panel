@@ -8,6 +8,7 @@ ChromeGo 节点面板 — 本地 Web 工具
 """
 import base64
 import json
+import os
 import re
 import ssl
 import threading
@@ -62,10 +63,9 @@ TOOL_BADGE = {
 def fetch_remote(tool_key: str, slot: int):
     """按 bat 的容错顺序：gitlab 主源 -> 67867867.xyz 镜像。返回 (text, source)。"""
     t = TOOLS[tool_key]
-    url_tpl = {"gitlab": GITLAB_TPL, "mirror": MIRROR_TPL}
     errors = []
-    for source in ("gitlab", "mirror"):
-        url = url_tpl[source].format(remote=t["remote"], slot=slot, filename=t["config"])
+    for source, tpl in (("gitlab", GITLAB_TPL), ("mirror", MIRROR_TPL)):
+        url = tpl.format(remote=t["remote"], slot=slot, filename=t["config"])
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 ChromeGoPanel"})
             with urllib.request.urlopen(req, timeout=20, context=SSL_CTX) as r:
@@ -88,13 +88,15 @@ def cache_file(tool_key: str, slot: int) -> Path:
 
 def read_cached(tool_key: str, slot: int):
     p = cache_file(tool_key, slot)
-    if p.exists():
-        return p.read_text(encoding="utf-8", errors="replace")
-    return None
+    return p.read_text(encoding="utf-8", errors="replace") if p.exists() else None
 
 
 def write_cache(tool_key: str, slot: int, text: str):
-    cache_file(tool_key, slot).write_text(text, encoding="utf-8")
+    # 先写临时文件再原子替换，避免预热线程和手动拉取并发写坏同一份缓存
+    p = cache_file(tool_key, slot)
+    tmp = CACHE_DIR / f"{p.name}.{threading.get_ident()}.tmp"
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, p)
 
 
 # ---------- 链接生成小工具 ----------
@@ -103,31 +105,48 @@ def _wrap_host(host: str) -> str:
     return f"[{h}]" if ":" in h else h
 
 
+def _hp(host, port):
+    return f"{_wrap_host(host)}:{port}"
+
+
+def _qs(params):
+    """urlencode 并丢掉空值（""/None/0），分享链接里不出现空参数。"""
+    return urllib.parse.urlencode({k: v for k, v in params.items() if v not in ("", None, 0)})
+
+
 def _proto_key(protocol):
     """vless+reality+xhttp -> vless, naive+https -> naive 之类，取主协议名"""
     return str(protocol).split("+")[0].split(".")[0]
 
 
-# 各协议能用的客户端（截至 v2rayN 7.x 时代的生态）
-USABLE_CLIENTS = {
-    "vless":       ["v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"],
-    "vmess":       ["v2rayN", "NekoRay / NekoBox", "mihomo 系客户端"],
-    "trojan":      ["v2rayN", "NekoRay / NekoBox", "mihomo 系客户端"],
-    "shadowsocks": ["v2rayN", "NekoRay / NekoBox", "mihomo 系客户端"],
-    "hysteria2":   ["v2rayN", "NekoRay / NekoBox", "mihomo 系客户端"],
-    "tuic":        ["v2rayN", "NekoRay / NekoBox", "mihomo 系客户端"],
+# 各协议的客户端支持矩阵（截至 v2rayN 7.x 时代的生态）：在集合里=✅，否则=❌
+_ALL_CLIENTS = ["v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"]
+SUPPORT = {
+    "vless":       {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
+    "vmess":       {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
+    "trojan":      {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
+    "shadowsocks": {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
+    "hysteria2":   {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
+    "tuic":        {"v2rayN", "NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）"},
     # hysteria v1：sing-box 和 v2rayN 都删了，但 mihomo 和 NekoRay 还活着
-    "hysteria":    ["NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）", "ChromeGo 自带 hysteria.exe"],
-    "naive":       ["NekoRay / NekoBox", "ChromeGo 自带 naive.exe（官方核心）"],
-    "juicity":     ["NekoRay / NekoBox", "ChromeGo 自带 juicity-client.exe（官方核心）"],
+    "hysteria":    {"NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）", "ChromeGo 自带 hysteria.exe"},
+    "naive":       {"NekoRay / NekoBox", "ChromeGo 自带 naive.exe（官方核心）"},
+    "juicity":     {"NekoRay / NekoBox", "ChromeGo 自带 juicity-client.exe（官方核心）"},
 }
+
+
+def _clients(protocol):
+    """该协议各客户端的支持状态：三件套全量列出，ChromeGo 自带只在协议真有它时出现。"""
+    ok = SUPPORT.get(_proto_key(protocol), set())
+    out = [dict(name=c, ok=c in ok) for c in _ALL_CLIENTS]
+    out += [dict(name=c, ok=True) for c in ok if c not in _ALL_CLIENTS]
+    return out
 
 
 def _v2n(protocol):
     """该协议生成的分享链接能否直接导入 v2rayN（7.x，Xray + sing-box 核心）"""
     p = str(protocol)
-    if p.startswith("vless") or p.startswith("vmess") or p.startswith("trojan") \
-            or p.startswith("shadowsocks") or p == "hysteria2" or p == "tuic":
+    if p.startswith(("vless", "vmess", "trojan", "shadowsocks")) or p in ("hysteria2", "tuic"):
         return True, ""
     if p.startswith("naive"):
         return False, "v2rayN 已移除 NaiveProxy 支持"
@@ -140,10 +159,9 @@ def _v2n(protocol):
 
 def _mk_node(protocol, server, port, auth, sni, insecure, links, summary):
     v2n, note = _v2n(protocol)
-    clients = USABLE_CLIENTS.get(_proto_key(protocol), [])
     return dict(protocol=protocol, server=server, port=port, auth=auth,
                 sni=sni, insecure=insecure, links=links, summary=summary,
-                v2n=v2n, v2n_note=note, clients=clients)
+                v2n=v2n, v2n_note=note, clients=_clients(protocol))
 
 
 def _one(url, label):
@@ -174,11 +192,11 @@ def parse_xray(data, label):
         "path": xs.get("path", ""),
         "mode": xs.get("mode", "auto"),
     }
-    qs = urllib.parse.urlencode({k: x for k, x in params.items() if x != ""})
-    url = f"vless://{u['id']}@{_wrap_host(v['address'])}:{v['port']}?{qs}#{urllib.parse.quote(label)}"
+    qs = _qs(params)
+    url = f"vless://{u['id']}@{_hp(v['address'], v['port'])}?{qs}#{urllib.parse.quote(label)}"
     return _mk_node(f"vless+{ss.get('security','tls')}+{ss.get('network','tcp')}",
                     v["address"], v["port"], "UUID " + u["id"][:8] + "…", params["sni"], None,
-                    _one(url, label), f"{_wrap_host(v['address'])}:{v['port']} · SNI {params['sni'] or '—'}")
+                    _one(url, label), f"{_hp(v['address'], v['port'])} · SNI {params['sni'] or '—'}")
 
 
 def parse_hysteria1(d, label):
@@ -188,46 +206,41 @@ def parse_hysteria1(d, label):
     sni = d.get("server_name") or d.get("peer") or ""
     insecure = 1 if d.get("insecure") else 0
     up, down = d.get("up_mbps"), d.get("down_mbps")
-    qs = urllib.parse.urlencode({k: x for k, x in {
-        "auth": auth, "peer": sni, "insecure": insecure,
-        "upmbps": up, "downmbps": down, "alpn": d.get("alpn", "h3")}.items() if x not in ("", None, 0)})
-    url = f"hysteria://{_wrap_host(host)}:{port}?{qs}#{urllib.parse.quote(label)}"
+    qs = _qs({"auth": auth, "peer": sni, "insecure": insecure,
+              "upmbps": up, "downmbps": down, "alpn": d.get("alpn", "h3")})
+    url = f"hysteria://{_hp(host, port)}?{qs}#{urllib.parse.quote(label)}"
     return _mk_node("hysteria", host, port, "auth_str", sni, insecure, _one(url, label),
-                    f"{_wrap_host(host)}:{port}" + (f" · {up}/{down} Mbps" if up and down else ""))
+                    _hp(host, port) + (f" · {up}/{down} Mbps" if up and down else ""))
 
 
 def parse_hysteria2(auth, host, port, sni, insecure, up=None, down=None, label=""):
-    qs = urllib.parse.urlencode({k: x for k, x in {
-        "sni": sni or "", "insecure": insecure,
-        "upmbps": up, "downmbps": down}.items() if x not in ("", None, 0)})
-    url = f"hysteria2://{urllib.parse.quote(str(auth))}@{_wrap_host(host)}:{port}?{qs}#{urllib.parse.quote(label)}"
+    qs = _qs({"sni": sni or "", "insecure": insecure, "upmbps": up, "downmbps": down})
+    url = f"hysteria2://{urllib.parse.quote(str(auth))}@{_hp(host, port)}?{qs}#{urllib.parse.quote(label)}"
     extra = f" · {up}/{down} Mbps" if up and down else ""
     return _mk_node("hysteria2", host, port, "auth", sni, insecure, _one(url, label),
-                    f"{_wrap_host(host)}:{port}{extra}")
+                    _hp(host, port) + extra)
 
 
 def parse_tuic(o, label):
     tls = o.get("tls", {})
-    qs = urllib.parse.urlencode({k: x for k, x in {
-        "congestion_control": o.get("congestion_control", "bbr"),
-        "alpn": ",".join(tls.get("alpn", ["h3"])),
-        "sni": tls.get("server_name", ""),
-        "allow_insecure": 1 if tls.get("insecure") else 0}.items() if x not in ("", None, 0)})
+    qs = _qs({"congestion_control": o.get("congestion_control", "bbr"),
+              "alpn": ",".join(tls.get("alpn", ["h3"])),
+              "sni": tls.get("server_name", ""),
+              "allow_insecure": 1 if tls.get("insecure") else 0})
     url = (f"tuic://{o['uuid']}:{urllib.parse.quote(o['password'])}"
-           f"@{_wrap_host(o['server'])}:{o['server_port']}?{qs}#{urllib.parse.quote(label)}")
+           f"@{_hp(o['server'], o['server_port'])}?{qs}#{urllib.parse.quote(label)}")
     return _mk_node("tuic", o["server"], o["server_port"], "uuid+password",
                     tls.get("server_name"), 1 if tls.get("insecure") else 0, _one(url, label),
-                    f"{_wrap_host(o['server'])}:{o['server_port']}")
+                    _hp(o['server'], o['server_port']))
 
 
 def parse_juicity(d, label):
     host, _, port = d["server"].rpartition(":")
-    qs = urllib.parse.urlencode({k: x for k, x in {
-        "sni": d.get("sni", ""),
-        "allow_insecure": 1 if d.get("allow_insecure") else 0,
-        "congestion_control": d.get("congestion_control", "bbr")}.items() if x not in ("", None, 0)})
+    qs = _qs({"sni": d.get("sni", ""),
+              "allow_insecure": 1 if d.get("allow_insecure") else 0,
+              "congestion_control": d.get("congestion_control", "bbr")})
     url = (f"juicity://{d['uuid']}:{urllib.parse.quote(d['password'])}"
-           f"@{_wrap_host(host)}:{port}?{qs}#{urllib.parse.quote(label)}")
+           f"@{_hp(host, port)}?{qs}#{urllib.parse.quote(label)}")
     return _mk_node("juicity", host, port, "uuid+password", d.get("sni"),
                     1 if d.get("allow_insecure") else 0, _one(url, label), d["server"])
 
@@ -259,32 +272,29 @@ def parse_singbox_outbound(o, label):
         return parse_hysteria1(d, label)
     if t == "vless":
         tls = o.get("tls", {})
-        qs = urllib.parse.urlencode({k: x for k, x in {
-            "security": "reality" if tls.get("reality") else ("tls" if tls.get("enabled") else "none"),
-            "sni": tls.get("server_name", ""), "fp": tls.get("utls", {}).get("fingerprint", ""),
-            "pbk": (tls.get("reality") or {}).get("public_key", ""),
-            "sid": (tls.get("reality") or {}).get("short_id", ""),
-            "type": o.get("transport", {}).get("type", "tcp")}.items() if x not in ("", None)})
-        url = (f"vless://{o['uuid']}@{_wrap_host(o['server'])}:{o['server_port']}"
-               f"?{qs}#{urllib.parse.quote(label)}")
+        qs = _qs({"security": "reality" if tls.get("reality") else ("tls" if tls.get("enabled") else "none"),
+                  "sni": tls.get("server_name", ""), "fp": tls.get("utls", {}).get("fingerprint", ""),
+                  "pbk": (tls.get("reality") or {}).get("public_key", ""),
+                  "sid": (tls.get("reality") or {}).get("short_id", ""),
+                  "type": o.get("transport", {}).get("type", "tcp")})
+        url = f"vless://{o['uuid']}@{_hp(o['server'], o['server_port'])}?{qs}#{urllib.parse.quote(label)}"
         return _mk_node("vless", o["server"], o["server_port"], "uuid", tls.get("server_name"),
                         1 if tls.get("insecure") else 0, _one(url, label),
-                        f"{_wrap_host(o['server'])}:{o['server_port']}")
+                        _hp(o['server'], o['server_port']))
     if t == "trojan":
         tls = o.get("tls", {})
-        qs = urllib.parse.urlencode({k: x for k, x in {
-            "sni": tls.get("server_name", ""),
-            "allowInsecure": 1 if tls.get("insecure") else 0}.items() if x not in ("", None, 0)})
-        url = (f"trojan://{urllib.parse.quote(o['password'])}@{_wrap_host(o['server'])}:{o['server_port']}"
+        qs = _qs({"sni": tls.get("server_name", ""),
+                  "allowInsecure": 1 if tls.get("insecure") else 0})
+        url = (f"trojan://{urllib.parse.quote(o['password'])}@{_hp(o['server'], o['server_port'])}"
                f"?{qs}#{urllib.parse.quote(label)}")
         return _mk_node("trojan", o["server"], o["server_port"], "password", tls.get("server_name"),
                         1 if tls.get("insecure") else 0, _one(url, label),
-                        f"{_wrap_host(o['server'])}:{o['server_port']}")
+                        _hp(o['server'], o['server_port']))
     if t == "shadowsocks":
         userinfo = base64.urlsafe_b64encode(f"{o['cipher']}:{o['password']}".encode()).decode().rstrip("=")
-        url = f"ss://{userinfo}@{_wrap_host(o['server'])}:{o['server_port']}#{urllib.parse.quote(label)}"
+        url = f"ss://{userinfo}@{_hp(o['server'], o['server_port'])}#{urllib.parse.quote(label)}"
         return _mk_node("shadowsocks", o["server"], o["server_port"], o["cipher"], None, None,
-                        _one(url, label), f"{_wrap_host(o['server'])}:{o['server_port']} · {o['cipher']}")
+                        _one(url, label), f"{_hp(o['server'], o['server_port'])} · {o['cipher']}")
     return None
 
 
@@ -303,27 +313,24 @@ def parse_clash_proxy(p, label):
     if t == "vless":
         net = p.get("network", "tcp")
         reality = p.get("reality-opts") or {}
-        qs = urllib.parse.urlencode({k: x for k, x in {
-            "encryption": p.get("encryption", "none"), "security": p.get("security", "tls"),
-            "sni": p.get("servername", ""), "fp": p.get("client-fingerprint", ""),
-            "pbk": reality.get("public-key", ""), "sid": reality.get("short-id", ""),
-            "type": net, "path": (p.get("http-opts") or {}).get("path", [""])[0] if net == "http" else p.get("path", ""),
-        }.items() if x not in ("", None)})
-        url = f"vless://{p['uuid']}@{_wrap_host(p['server'])}:{p['port']}?{qs}#{urllib.parse.quote(label)}"
+        qs = _qs({"encryption": p.get("encryption", "none"), "security": p.get("security", "tls"),
+                  "sni": p.get("servername", ""), "fp": p.get("client-fingerprint", ""),
+                  "pbk": reality.get("public-key", ""), "sid": reality.get("short-id", ""),
+                  "type": net, "path": (p.get("http-opts") or {}).get("path", [""])[0] if net == "http" else p.get("path", "")})
+        url = f"vless://{p['uuid']}@{_hp(p['server'], p['port'])}?{qs}#{urllib.parse.quote(label)}"
         return _mk_node("vless", p["server"], p["port"], "uuid", p.get("servername"), None,
-                        _one(url, label), f"{_wrap_host(p['server'])}:{p['port']}")
+                        _one(url, label), _hp(p['server'], p['port']))
     if t == "trojan":
-        qs = urllib.parse.urlencode({k: x for k, x in {
-            "sni": p.get("sni", ""), "allowInsecure": insecure}.items() if x not in ("", None, 0)})
-        url = (f"trojan://{urllib.parse.quote(str(p['password']))}@{_wrap_host(p['server'])}:{p['port']}"
+        qs = _qs({"sni": p.get("sni", ""), "allowInsecure": insecure})
+        url = (f"trojan://{urllib.parse.quote(str(p['password']))}@{_hp(p['server'], p['port'])}"
                f"?{qs}#{urllib.parse.quote(label)}")
         return _mk_node("trojan", p["server"], p["port"], "password", p.get("sni"), insecure,
-                        _one(url, label), f"{_wrap_host(p['server'])}:{p['port']}")
+                        _one(url, label), _hp(p['server'], p['port']))
     if t == "ss":
         userinfo = base64.urlsafe_b64encode(f"{p['cipher']}:{p['password']}".encode()).decode().rstrip("=")
-        url = f"ss://{userinfo}@{_wrap_host(p['server'])}:{p['port']}#{urllib.parse.quote(label)}"
+        url = f"ss://{userinfo}@{_hp(p['server'], p['port'])}#{urllib.parse.quote(label)}"
         return _mk_node("shadowsocks", p["server"], p["port"], p["cipher"], None, None,
-                        _one(url, label), f"{_wrap_host(p['server'])}:{p['port']} · {p['cipher']}")
+                        _one(url, label), f"{_hp(p['server'], p['port'])} · {p['cipher']}")
     return None
 
 
@@ -391,11 +398,16 @@ def parse_config_text(text: str, label: str):
 
 
 def nodes_fingerprint(nodes):
-    """节点列表的指纹，用于新旧对比。"""
-    return [(n["protocol"], n["server"], str(n["port"])) for n in nodes]
+    """节点列表的指纹，用于新旧对比。auth 必须参与：同 IP 换 uuid/密码是换节点，不是没更新。"""
+    return [(n["protocol"], n["server"], str(n["port"]), str(n["auth"])) for n in nodes]
 
 
 # ---------- 汇总 / 去重 ----------
+def _all_jobs():
+    """全部工具的全部槽位：[(tool_key, slot), ...]"""
+    return [(k, s) for k, t in TOOLS.items() for s in range(1, t["slots"] + 1)]
+
+
 def slot_dup_tags(tool_key: str, slots: int):
     """根据缓存判断哪些槽位内容和其他槽位重复。返回 ["同源1", None, ...]（None=不重复或没拉过）。"""
     tags = [None] * slots
@@ -418,8 +430,7 @@ def slot_dup_tags(tool_key: str, slots: int):
 def warm_cache():
     """冷启动预热：cache/ 是运行时产物（clone 下来是空的），后台并发把全部槽位拉一遍写进缓存，
     这样"同源N"标记和 /sub 订阅第一次用就有数据。"""
-    jobs = [(key, s) for key, t in TOOLS.items()
-            for s in range(1, t["slots"] + 1) if not read_cached(key, s)]
+    jobs = [j for j in _all_jobs() if not read_cached(*j)]
     if not jobs:
         return
 
@@ -438,9 +449,9 @@ def warm_cache():
 def aggregate_unique(refresh=False):
     """
     拉取全部工具的全部槽位（refresh=True 时联网刷新并更新缓存，否则读缓存），
-    按协议+地址+端口去重。返回 (unique_nodes, errors)。
+    按指纹（协议+地址+端口+认证）去重。返回 (unique_nodes, errors)。
     """
-    jobs = [(key, s) for key, t in TOOLS.items() for s in range(1, t["slots"] + 1)]
+    jobs = _all_jobs()
     parsed = {}  # (tool, slot) -> nodes or None
 
     if refresh:
@@ -468,7 +479,7 @@ def aggregate_unique(refresh=False):
             errors.append(f"{TOOLS[key]['label']} 源{s}")
             continue
         for n in nodes:
-            fpk = (n["protocol"], n["server"], str(n["port"]))
+            fpk = (n["protocol"], n["server"], str(n["port"]), str(n["auth"]))
             if fpk in seen:
                 continue
             seen.add(fpk)
@@ -481,40 +492,28 @@ def aggregate_unique(refresh=False):
 def build_sub():
     """把缓存里全部去重后的可用链接聚合成 v2rayN 订阅（base64）。"""
     lines, seen = [], set()
-    for key, t in TOOLS.items():
-        for s in range(1, t["slots"] + 1):
-            text = read_cached(key, s)
-            if not text:
+    for key, s in _all_jobs():
+        text = read_cached(key, s)
+        if not text:
+            continue
+        nodes, _ = parse_config_text(text, f"{TOOLS[key]['label']}-源{s}")
+        for n in nodes:
+            if not n["v2n"]:
+                continue  # v2rayN 不支持的协议不进订阅，避免噪音
+            fpk = (n["protocol"], n["server"], str(n["port"]), str(n["auth"]))
+            if fpk in seen:
                 continue
-            nodes, _ = parse_config_text(text, f"{t['label']}-源{s}")
-            for n in nodes:
-                if not n["v2n"]:
-                    continue  # v2rayN 不支持的协议不进订阅，避免噪音
-                fpk = (n["protocol"], n["server"], str(n["port"]))
-                if fpk in seen:
-                    continue
-                seen.add(fpk)
-                for l in n["links"]:
-                    lines.append(l["url"])
+            seen.add(fpk)
+            for l in n["links"]:
+                lines.append(l["url"])
     return base64.b64encode("\n".join(lines).encode()).decode()
 
 
 # ---------- 本地状态 ----------
-def local_state(tool_key: str, slot: int):
-    """返回该槽位上次拉取的 (text, 来源说明) 或 (None, None)。"""
-    c = read_cached(tool_key, slot)
-    if c:
-        return c, "上次拉取"
-    return None, None
-
-
 def local_summary(tool_key: str):
     """工具列表里显示的本地概要：该工具所有槽位缓存里最新的一份。"""
     t = TOOLS[tool_key]
-    best = None
-    for f in CACHE_DIR.glob(f"{tool_key}_ip*"):
-        if best is None or f.stat().st_mtime > best.stat().st_mtime:
-            best = f
+    best = max(CACHE_DIR.glob(f"{tool_key}_ip*"), key=lambda f: f.stat().st_mtime, default=None)
     if best:
         slot = int(re.search(r"_ip(\d+)", best.name).group(1))
         nodes, _ = parse_config_text(best.read_text(encoding="utf-8", errors="replace"), f"{t['label']}-ip{slot}")
@@ -529,24 +528,24 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"[{datetime.now():%H:%M:%S}]", fmt % args)
 
-    def _json(self, obj, code=200):
-        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    def _send(self, body: bytes, ctype: str, code=200, **headers):
         self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", ctype)
+        for k, v in headers.items():
+            self.send_header(k.replace("_", "-"), v)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
+    def _json(self, obj, code=200):
+        self._send(json.dumps(obj, ensure_ascii=False).encode("utf-8"),
+                   "application/json; charset=utf-8", code)
+
     def do_GET(self):
         if self.path in ("/", "/index.html"):
-            page = (PANEL_DIR / "index.html").read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
             # 禁缓存：页面迭代频繁，浏览器缓存旧 JS 会导致新功能"没生效"
-            self.send_header("Cache-Control", "no-store, must-revalidate")
-            self.send_header("Content-Length", str(len(page)))
-            self.end_headers()
-            self.wfile.write(page)
+            self._send((PANEL_DIR / "index.html").read_bytes(), "text/html; charset=utf-8",
+                       Cache_Control="no-store, must-revalidate")
         elif self.path == "/api/tools":
             tools = []
             for key, t in TOOLS.items():
@@ -559,14 +558,10 @@ class Handler(BaseHTTPRequestHandler):
                 tools.append(dict(key=key, label=t["label"], sub=t["sub"], slots=t["slots"],
                                   badge=badge, local=loc,
                                   slot_tags=slot_dup_tags(key, t["slots"])))
-            self._json(dict(panel_dir=str(PANEL_DIR), tools=tools, warming=WARMING))
+            self._json(dict(panel_dir=str(PANEL_DIR), tools=tools, warming=WARMING,
+                            sub_url=f"http://127.0.0.1:{PORT}/sub"))
         elif self.path == "/sub":
-            body = build_sub().encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send(build_sub().encode("utf-8"), "text/plain; charset=utf-8")
         else:
             self._json(dict(error="not found"), 404)
 
@@ -579,15 +574,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/fetch_all":
             try:
                 unique, errors = aggregate_unique(refresh=True)
-                return self._json(dict(unique=unique, errors=errors,
-                                       sub_url=f"http://127.0.0.1:{PORT}/sub"))
+                return self._json(dict(unique=unique, errors=errors))
             except Exception as e:
                 return self._json(dict(error=str(e)), 502)
 
         if self.path != "/api/fetch":
             return self._json(dict(error="not found"), 404)
         tool = body.get("tool")
-        slot = int(body.get("slot", 1))
+        try:
+            slot = int(body.get("slot", 1))
+        except (TypeError, ValueError):
+            return self._json(dict(error="slot 必须是数字"), 400)
         if tool not in TOOLS:
             return self._json(dict(error=f"未知工具 {tool}"), 400)
         if not (1 <= slot <= TOOLS[tool]["slots"]):
@@ -595,13 +592,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             text, source = fetch_remote(tool, slot)
             nodes, _ = parse_config_text(text, f"{TOOLS[tool]['label']}-ip{slot}")
-            old_text, old_from = local_state(tool, slot)
-            old_nodes = []
-            if old_text:
-                old_nodes, _ = parse_config_text(old_text, f"{TOOLS[tool]['label']}-旧")
-            changed = None
-            if old_nodes:
-                changed = nodes_fingerprint(old_nodes) != nodes_fingerprint(nodes)
+            old_text = read_cached(tool, slot)
+            old_nodes = parse_config_text(old_text, f"{TOOLS[tool]['label']}-旧")[0] if old_text else []
+            changed = nodes_fingerprint(old_nodes) != nodes_fingerprint(nodes) if old_nodes else None
             write_cache(tool, slot, text)  # 每次拉取都更新缓存（冷启动后下一次就有"上次拉取"了）
             return self._json(dict(source=source, nodes=nodes, old_nodes=old_nodes,
                                    changed=changed, raw=text, first_time=not old_nodes))

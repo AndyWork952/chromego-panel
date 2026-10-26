@@ -100,6 +100,8 @@
   .agg-row { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap }
   .agg-from { font-size: 12px; color: var(--muted); width: 130px; flex-shrink: 0; font-weight: 600 }
   .agg-sum { flex: 1; min-width: 180px; font-size: 13.5px; font-weight: 600 }
+  .agg-clients { flex-basis: 100%; padding-left: 140px; display: flex; gap: 6px; flex-wrap: wrap }
+  .agg-clients .client-chip { font-size: 11px; padding: 1px 10px }
 
   .btn {
     display: inline-block; padding: 12px 28px; border-radius: 14px; border: none;
@@ -146,6 +148,7 @@
   .clients .lab { display: block; margin-bottom: 8px; font-weight: 600 }
   .clients .chips { display: flex; flex-wrap: wrap; gap: 6px }
   .client-chip { display: inline-block; background: rgba(124, 58, 237, .07); border: 1px solid rgba(124, 58, 237, .18); border-radius: 99px; padding: 2px 10px; color: var(--accent); font-weight: 600 }
+  .client-chip.no { background: rgba(28, 25, 55, .05); border-color: var(--line); color: var(--muted) }
   .linkrow code {
     flex: 1; font: 12px Consolas, "Courier New", monospace;
     background: rgba(124, 58, 237, .08); padding: 8px 10px; border-radius: 8px;
@@ -209,7 +212,7 @@
     <p class="desc">7 个工具 × 全部槽位一次拉完，重复节点自动去掉。下面这个订阅地址可以直接填进 v2rayN（订阅 → 添加订阅），以后拉完点一下 v2rayN 的"更新订阅"就同步了：</p>
     <div class="linkrow">
       <code id="subUrl">http://127.0.0.1:8765/sub</code>
-      <button class="copy" onclick="copyTxt(this, 'http://127.0.0.1:8765/sub')">复制</button>
+      <button class="copy" id="subCopy" data-copy="http://127.0.0.1:8765/sub">复制</button>
     </div>
     <div style="margin-top:16px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
       <button class="btn" id="aggBtn" onclick="doFetchAll()">🔄 拉取全部槽位并去重</button>
@@ -229,12 +232,15 @@
 </footer>
 
 <script>
-let TOOLS = [], CUR = null, SLOT = 1, FETCHED = null, PANEL_DIR = '';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let TOOLS = [], CUR = null, SLOT = 1, FETCHED = null, PANEL_DIR = '', SUB_URL = '';
 
 async function loadTools() {
   const r = await fetch('/api/tools');
   const d = await r.json();
-  TOOLS = d.tools; PANEL_DIR = d.panel_dir;
+  TOOLS = d.tools; PANEL_DIR = d.panel_dir; SUB_URL = d.sub_url || SUB_URL;
+  document.getElementById('subUrl').textContent = SUB_URL;
+  document.getElementById('subCopy').dataset.copy = SUB_URL;
   // 冷启动预热：后端正在后台拉全部槽位写缓存，完成后"同源N"标记才会出现
   const warmEl = document.getElementById('warmTip');
   if (d.warming && !loadTools._polling) {
@@ -248,11 +254,11 @@ async function loadTools() {
   TOOLS.forEach(t => {
     const el = document.createElement('div');
     el.className = 'tool' + (CUR === t.key ? ' active' : '');
-    const local = t.local ? `${t.local.node.summary}${t.local.count > 1 ? ` 等 ${t.local.count} 个节点` : ''}<br>${t.local.source} · ${t.local.mtime}` : '（本地还没有记录）';
+    const local = t.local ? `${esc(t.local.node.summary)}${t.local.count > 1 ? ` 等 ${t.local.count} 个节点` : ''}<br>${t.local.source} · ${t.local.mtime}` : '（本地还没有记录）';
     el.innerHTML = `
       <div class="t-head">
         <span class="t-name">${t.label}</span>
-        <span class="pill ${t.badge && t.badge[1] === 'ok' ? 'ok' : (t.badge && t.badge[1] === 'mid' ? 'mid' : 'no')}">${t.badge ? t.badge[0] : ''}</span>
+        <span class="pill ${({ok: 'ok', mid: 'mid'}[t.badge?.[1]] || 'no')}">${t.badge ? t.badge[0] : ''}</span>
       </div>
       <div class="t-sub">${t.sub}</div>
       <div class="t-local">${local}</div>`;
@@ -268,7 +274,7 @@ function kv(node) {
     ['认证', node.auth || '—'], ['SNI', node.sni || '—'],
     ['跳过证书', node.insecure === 1 ? '是 ⚠️' : (node.insecure === 0 ? '否' : '—')],
   ];
-  return `<table class="kv">${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1] ?? '—'}</td></tr>`).join('')}</table>`;
+  return `<table class="kv">${rows.map(r => `<tr><td>${r[0]}</td><td>${esc(r[1] ?? '—')}</td></tr>`).join('')}</table>`;
 }
 
 function linksBox(node) {
@@ -276,14 +282,14 @@ function linksBox(node) {
   const ok = node.v2n;
   const tag = ok
     ? `<span class="pill ok" title="复制后可在 v2rayN 从剪贴板导入">v2rayN ✅</span>`
-    : `<span class="pill no" title="${(node.v2n_note || '不支持').replace(/"/g,'')}">v2rayN ❌</span>`;
+    : `<span class="pill no" title="${esc(node.v2n_note || '不支持')}">v2rayN ❌</span>`;
   const clients = (node.clients && node.clients.length)
-    ? `<div class="clients"><span class="lab">🧰 能用它的客户端</span><span class="chips">${node.clients.map(c =>
-        `<span class="client-chip">${c}</span>`).join('')}</span></div>` : '';
+    ? `<div class="clients"><span class="lab">🧰 客户端支持</span><span class="chips">${node.clients.map(c =>
+        `<span class="client-chip ${c.ok ? '' : 'no'}">${c.name} ${c.ok ? '✅' : '❌'}</span>`).join('')}</span></div>` : '';
   return `<div class="linktags">${tag}</div>` + node.links.map(l => `
     <div class="linkrow">
-      <code>${l.url.replace(/&/g,'&amp;')}</code>
-      <button class="copy" onclick="copyTxt(this, '${l.url.replace(/'/g,"\\'")}')">复制</button>
+      <code>${esc(l.url)}</code>
+      <button class="copy" data-copy="${esc(l.url)}">复制</button>
     </div>`).join('') + clients;
 }
 
@@ -292,6 +298,12 @@ function copyTxt(btn, txt) {
     btn.textContent = '已复制 ✓'; setTimeout(() => btn.textContent = '复制', 1200);
   });
 }
+
+// 统一处理所有 data-copy 按钮（事件委托，远端链接经 esc 进属性，再从 dataset 原样读出）
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-copy]');
+  if (b) copyTxt(b, b.dataset.copy);
+});
 
 async function doFetch() {
   const btn = document.getElementById('fetchBtn');
@@ -303,6 +315,8 @@ async function doFetch() {
     if (d.error) { alert('拉取失败：' + d.error); return; }
     FETCHED = d;
     render();
+  } catch (e) {
+    alert('拉取失败：' + e);
   } finally {
     btn.disabled = false; btn.textContent = '拉取预览';
   }
@@ -319,13 +333,16 @@ async function doFetchAll() {
     const rows = d.unique.map(n => {
       const tag = n.v2n
         ? `<span class="pill ok">v2rayN ✅</span>`
-        : `<span class="pill no" title="${(n.v2n_note||'').replace(/"/g,'')}">v2rayN ❌</span>`;
+        : `<span class="pill no" title="${esc(n.v2n_note||'')}">v2rayN ❌</span>`;
       const link = n.links && n.links[0];
+      const chips = (n.clients && n.clients.length)
+        ? `<span class="agg-clients">${n.clients.map(c => `<span class="client-chip ${c.ok ? '' : 'no'}">${c.name} ${c.ok ? '✅' : '❌'}</span>`).join('')}</span>` : '';
       return `<div class="agg-row">
         <span class="agg-from">${n.from_tool} · 源${n.from_slot}</span>
         ${tag}
-        <span class="agg-sum">${n.summary}</span>
-        ${link ? `<button class="copy" onclick="copyTxt(this, '${link.url.replace(/'/g,"\\'")}')">复制链接</button>` : ''}
+        <span class="agg-sum">${esc(n.summary)}</span>
+        ${link ? `<button class="copy" data-copy="${esc(link.url)}">复制链接</button>` : ''}
+        ${chips}
       </div>`;
     }).join('');
     document.getElementById('aggResult').innerHTML = `
@@ -378,7 +395,7 @@ function render() {
         <div class="box new"><div class="cap">远端最新${nodes.length > 1 ? `（${nodes.length} 个节点）` : ''}</div>${nodes.map((nd, i) => nodeBlock(nd, i, nodes.length)).join('')}</div>
       </div>
       <div class="hint-ok">✅ 链接已生成，复制进 v2rayN 就能用 —— 冷启动直接拉一次就有，不用落地任何文件。</div>
-      <details class="raw"><summary>看原始配置文件</summary><pre class="rawbox">${(FETCHED.raw||'').replace(/</g,'&lt;')}</pre></details>`;
+      <details class="raw"><summary>看原始配置文件</summary><pre class="rawbox">${esc(FETCHED.raw||'')}</pre></details>`;
   } else {
     body = `
       <h2>${t.label} · 拉哪个槽位？</h2>
