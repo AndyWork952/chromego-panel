@@ -1,3 +1,6 @@
+# macOS Finder 留下的目录元数据，和项目无关
+.DS_Store
+
 # 运行时产物（冷启动自动重建，不入库）
 cache/
 

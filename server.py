@@ -45,6 +45,7 @@ EXT_SOURCES = {
 EXT_PROBE_LIMIT = 600  # 每源最多探测的节点数（控制刷新耗时在 1 分钟级）
 EXT_KEEP = 300         # 每源最多保留进缓存的活节点数（控制订阅体积）
 EXT_KEEP_TOTAL = 120   # 跨源合并后进订阅的条数上限（按延迟取最快的，客户端列表才不会长到没法用）
+EXT_KEEP_UDP = 40      # hysteria2 是 UDP，测活测不了，免检收但单独限量
 EXT_REFRESH_MIN = 40   # 自动刷新间隔（分钟）：免费节点寿命是小时级，靠定时刷新比多接源有用
 # 免费源的 vmess 节点存活期通常只有半小时级，vless/trojan 明显耐用；默认过滤掉 vmess，可在面板上关掉
 _ext_cfg = dict(drop_vmess=True)
@@ -801,7 +802,8 @@ def build_sub_clash():
 
 
 # ---------- 外部公共订阅源 ----------
-_EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")  # UDP 协议（hysteria 系）无法握手测活，外部源只收这四种
+_EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")     # 可做真握手测活
+_EXT_UDP_SCHEMES = ("hysteria2",)                          # QUIC 走 UDP，测不了，免检直收（抗封锁比 tls 好）
 
 def _parse_link(link):
     """分享链接 -> (scheme, host, port)，用于去重和测活。vmess 的地址在 base64 JSON 里。"""
@@ -914,13 +916,18 @@ def refresh_ext(key):
         raise RuntimeError(net_diagnosis())
     if "://" not in text[:4000]:  # 整体 base64 的订阅
         text = base64.b64decode(text.strip() + "=" * (-len(text.strip()) % 4)).decode("utf-8", "replace")
-    links, seen = [], set()
+    links, udp, seen = [], [], set()
     for line in text.splitlines():
         line = line.strip()
         p = _parse_link(line) if "://" in line else None
-        if p and p[0] in _EXT_TCP_SCHEMES and p not in seen:
-            seen.add(p)
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        if p[0] in _EXT_TCP_SCHEMES:
             links.append(line)
+        elif p[0] in _EXT_UDP_SCHEMES:
+            udp.append(line)
+    udp = udp[:EXT_KEEP_UDP]  # 免检直收，数量得单独限住，否则订阅被 QUIC 节点灌满
     # 按序截断前先把非 vmess 排前面：ALIILAPRO 的 vless 全堆在文件末尾，不排就一条都测不到
     links.sort(key=lambda l: l.startswith("vmess://"))
     pairs = links[:EXT_PROBE_LIMIT]
@@ -928,15 +935,17 @@ def refresh_ext(key):
         results = list(ex.map(lambda l: (l, _probe_link(l)), pairs))
     alive = sorted((ms, url) for url, ms in results if ms is not None)
     data = dict(fetched=datetime.now().strftime("%Y-%m-%d %H:%M"), source=source,
-                total=len(links), alive=len(alive),
-                nodes=[dict(url=url, name=link_name(url), ms=round(ms)) for ms, url in alive[:EXT_KEEP]])
+                total=len(links), alive=len(alive), udp=len(udp),
+                nodes=[dict(url=url, name=link_name(url), ms=round(ms)) for ms, url in alive[:EXT_KEEP]]
+                      + [dict(url=url, name=link_name(url), ms=None) for url in udp])
     ext_cache_file(key).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return data
 
 
 def ext_alive():
-    """全部外部源的存活节点：跨源按 (协议,地址,端口) 去重，按延迟排序后取前 EXT_KEEP_TOTAL 条。"""
-    out, seen = [], set()
+    """全部外部源的可用节点：跨源按 (协议,地址,端口) 去重。
+    TCP 节点按延迟升序取最快 EXT_KEEP_TOTAL 条；hysteria2 没有延迟可比，免检接在后面（最多 EXT_KEEP_UDP 条）。"""
+    tcp, udp, seen = [], [], set()
     for key in EXT_SOURCES:
         f = ext_cache_file(key)
         if not f.exists():
@@ -949,11 +958,13 @@ def ext_alive():
             if _ext_cfg["drop_vmess"] and n["url"].startswith("vmess://"):
                 continue
             p = _parse_link(n["url"])
-            if p and p not in seen:
-                seen.add(p)
-                out.append((n["url"], n["name"], n.get("ms", 9999), d.get("fetched", "")))
-    out.sort(key=lambda x: x[2])  # 延迟升序：订阅里先出现最快的
-    return out[:EXT_KEEP_TOTAL]
+            if not p or p in seen:
+                continue
+            seen.add(p)
+            row = (n["url"], n["name"], n.get("ms") or 0, d.get("fetched", ""))
+            (tcp if n.get("ms") is not None else udp).append(row)
+    tcp.sort(key=lambda x: x[2])  # 延迟升序：订阅里先出现最快的
+    return tcp[:EXT_KEEP_TOTAL] + udp[:EXT_KEEP_UDP]
 
 
 def ext_stale():
@@ -1082,16 +1093,16 @@ class Handler(BaseHTTPRequestHandler):
                     keep = sum(1 for n in nodes
                                if not (_ext_cfg["drop_vmess"] and n["url"].startswith("vmess://")))
                     info.update(fetched=d.get("fetched"), total=d.get("total"),
-                                alive=d.get("alive"), keep=keep)
+                                alive=d.get("alive"), keep=keep, udp=d.get("udp", 0))
                 except Exception:
-                    info.update(fetched=None, total=None, alive=None, keep=0)
+                    info.update(fetched=None, total=None, alive=None, keep=0, udp=0)
                 info["failed_at"] = (datetime.fromtimestamp(EXT_ATTEMPT[key]).strftime("%H:%M")
                                      if key in EXT_ATTEMPT else None)  # 失败原因属于哪一轮，避免旧失败记录误导
                 info["error"] = EXT_ERRORS.get(key)
                 exts.append(info)
             proxy = _PROXY["url"]  # 只回缓存值，不在请求线程里现探（探测最长十几秒）
             self._json(dict(ext=exts, refreshing=EXT_REFRESHING, drop_vmess=_ext_cfg["drop_vmess"],
-                            keep_total=EXT_KEEP_TOTAL, every_min=EXT_REFRESH_MIN,
+                            keep_total=EXT_KEEP_TOTAL, keep_udp=EXT_KEEP_UDP, every_min=EXT_REFRESH_MIN,
                             proxy=proxy, proxy_checked=bool(_PROXY["ts"]),
                             next_refresh=next_refresh_at()))
         elif self.path == "/sub":
@@ -1165,6 +1176,8 @@ def main():
     WARMING = True
     threading.Thread(target=_warm, daemon=True).start()
     # 外部源：每分钟检查缓存年龄，超过 40 分钟就自动重拉（首次启动缓存为空也会立刻拉）
+    # 另外启动时先探一次代理：缓存还新鲜时不会有刷新来触发探测，面板会一直显示"正在看网络情况"
+    threading.Thread(target=detect_proxy, daemon=True).start()
     threading.Thread(target=auto_refresh_ext, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 

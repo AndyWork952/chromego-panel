@@ -46,17 +46,30 @@ assert server.nodes_fingerprint([a]) != server.nodes_fingerprint([b])
 server.CACHE_DIR = pathlib.Path(tempfile.mkdtemp())
 server.EXT_SOURCES = {"demo": dict(label="demo")}
 (server.CACHE_DIR / "ext_demo.json").write_text(
-    json.dumps(dict(fetched="t", nodes=[dict(url=v, name="m", ms=1), dict(url=r, name="r", ms=2)])))
+    json.dumps(dict(fetched="t", nodes=[dict(url=v, name="m", ms=300), dict(url=r, name="r", ms=20)])))
 
 server._ext_cfg["drop_vmess"] = True
 assert [u for u, *_ in server.ext_alive()] == [r]
 server._ext_cfg["drop_vmess"] = False
-assert len(server.ext_alive()) == 2
+assert [ms for _, _, ms, _ in server.ext_alive()] == [20, 300]  # 快的排前面，订阅里先出现
 
 # 两种订阅格式
 assert base64.b64decode(server.build_sub()).decode().count("://") == 2
 cfg = yaml.safe_load(server.build_sub_clash())
 assert [g["type"] for g in cfg["proxy-groups"]] == ["select", "url-test"]
 assert len(cfg["proxies"]) == 2
+
+# 跨源合并会按 EXT_KEEP_TOTAL 截断（不能让订阅长到客户端列表没法用）
+server.EXT_KEEP_TOTAL = 1
+assert len(server.ext_alive()) == 1
+server.EXT_KEEP_TOTAL = 120
+
+# hysteria2 是 UDP，测不了活 -> 免检直收、排在最后、不吃 TCP 那 120 条的额度
+h = "hysteria2://auth@1.2.3.4:443?sni=s.com#q"
+(server.CACHE_DIR / "ext_demo.json").write_text(json.dumps(dict(fetched="t", nodes=[
+    dict(url=v, name="m", ms=300), dict(url=r, name="r", ms=20), dict(url=h, name="q", ms=None)])))
+assert [u for u, *_ in server.ext_alive()] == [r, v, h]
+server.EXT_KEEP_TOTAL = 1
+assert [u for u, *_ in server.ext_alive()] == [r, h]
 
 print("selftest OK")
