@@ -212,7 +212,7 @@
 
   <div class="panel" id="aggPanel">
     <h2>全部线路 · 已去重</h2>
-    <p class="desc">把 7 个工具的所有源一次拉完，重复的节点自动去掉。下面这个地址填一次就行，以后不用改（v2rayN 里：订阅 → 添加订阅）。想看最新节点，在客户端点一下「更新订阅」，它就会重新来取一次最新的：</p>
+    <p class="desc">把 4 个工具的所有源一次拉完，重复的自动去掉。订阅地址填一次就行（v2rayN：订阅 → 添加订阅），想取最新就在客户端点「更新订阅」：</p>
     <div class="linkrow">
       <code id="subUrl">http://127.0.0.1:8765/sub</code>
       <button class="copy" id="subCopy" data-copy="http://127.0.0.1:8765/sub">复制</button>
@@ -225,12 +225,16 @@
     <div style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px">
       <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
         <span class="desc" style="margin:0; font-weight:700">🌐 公共免费源</span>
-        <span class="desc" style="margin:0" id="extInfo">加载中…</span>
+        <span style="display:flex; align-items:center; gap:8px; flex:1; min-width:300px; max-width:520px">
+          <span class="desc" style="margin:0; white-space:nowrap">代理地址</span>
+          <input id="proxyInput" placeholder="留空 = 直连 + 镜像；填代理如 http://127.0.0.1:7890"
+                 title="填了就只走这个代理，连不通自动落到直连 + 镜像；留空直接走直连 + 镜像"
+                 style="flex:1; width:100%; min-width:0; padding:7px 12px; border:1px solid var(--line); border-radius:9px; font:inherit; font-size:13px; color:var(--text); background:var(--card)"
+                 onchange="doSaveProxy(this)">
+        </span>
         <button class="btn" id="extBtn" onclick="doExtRefresh()">🌐 立即更新</button>
-        <label class="tog" id="dropVmWrap" title="VMess 节点通常半小时内就失效，去掉后订阅更耐用">
-          <input type="checkbox" id="dropVm" onchange="doDropVm(this.checked)"> 不要 VMess 节点
-        </label>
       </div>
+      <div class="desc" id="extInfo" style="margin:8px 0 0; display:block">加载中…</div>
       <div class="src" id="extRows" style="margin-top:4px"></div>
       <div class="hint-ok" id="extDone" hidden style="margin-top:10px"></div>
     </div>
@@ -238,7 +242,39 @@
 
   <div class="panel">
     <h2>它是怎么运作的</h2>
-    <p class="why">作者在云端放了若干固定地址（界面上叫「源1、源2」）。每个地址里的节点会不定期换——IP 被墙了就换掉，有时连协议都整套换。所以你每次拉到的是「这个地址此刻正在放的东西」，不保证和昨天一样：别把某次拉到的链接当长期饭票，隔几天回来重拉一次更稳。</p>
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">先认识两个词</b> ——
+      <strong>节点</strong>：一台帮你转发上网流量的服务器，翻墙软件连上它，你的流量就借它出去；
+      <strong>订阅</strong>：一个网址，客户端（v2rayN / Clash）会按这个网址定期来取最新的节点列表，取一次更新一次。</p>
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">① ChromeGo 的源（左边的工具列表）</b> ——
+      ChromeGo 的作者把免费节点放在云端几个<strong>固定地址</strong>里，界面上叫「源1、源2」。
+      可以把它们想成几个<strong>快递柜</strong>：柜子地址永远不变，但里面的包裹会换——
+      节点用几天就被封了，作者就换一批新的塞进去，有时连「包裹种类」（协议）都整个换掉。
+      所以每次点「拉取」，你拿到的是<strong>这一刻柜子里的最新内容</strong>，跟昨天不一样很正常，别把某次拉到的链接当长期饭票，隔几天回来重拉一次更稳。
+      好消息是这些柜子地址在国内<strong>不用翻墙就能打开</strong>，所以左边的功能开不开代理都好用。</p>
+    <p class="why"><b style="color:var(--text)">② 外部公共源（下面的「公共免费源」）</b> ——
+      除了 ChromeGo，还有其他作者把四处收集的免费节点打包成订阅文件，放在 GitHub 上。
+      面板帮你把这些文件下载下来，只挑和左边四类对应的协议（vless/vmess/trojan/ss/hysteria/hysteria2），其他一律不要。
+      两类节点的待遇不一样：<strong>TCP 系</strong>（vless/vmess/trojan/ss）会挨个真握手试连一遍——
+      就像打电话看对方接不接——<strong>接不通的直接扔掉</strong>，留下来的按速度排队；
+      <strong>hy1 / hy2</strong> 走的是 UDP，这套「打电话」对它们没用（打通了也不代表能用），所以不试直接收，
+      死活交给客户端的「自动选择」组自己挑。
+      麻烦在于 GitHub 在国内<strong>直连打不开</strong>，所以有两条路：
+      你在上面「代理地址」框里填了代理，就走你的代理去拿；没填，面板就借一个国内的「搬运站」（镜像）替你拿，慢一点但也能拿到。
+      这些源<strong>不会自己更新</strong>——你点一次「立即更新」，面板才去拿一次（四个源同时开工，TCP 节点要挨个试连，通常一分多钟）。</p>
+    <p class="why" style="margin-top:10px"><b style="color:var(--text)">③ 开代理软件 ≠ 开系统代理</b> ——
+      这俩是两件独立的事，很多人容易混。
+      <strong>打开代理软件</strong>（v2rayN / Clash）：相当于在你电脑里开了一个「中转站」窗口（比如 127.0.0.1:10808），谁把上网请求递给它，它就帮你转出去。
+      <strong>打开系统代理</strong>：只是在 Windows 里贴了张<strong>告示</strong>——「上外网请走那个中转站」——它自己不开门不干活，只给"会来看告示的程序"（主要是浏览器）指路。
+      所以会出现这种状态：软件开着、系统代理关着 → 浏览器没看告示、在直连（网页上不去外网），但面板这种<strong>自己知道地址</strong>的程序，照样能把请求递进中转站。
+      面板从不看系统代理那张告示，只认你填的「代理地址」——能不能借道出去，就看两件事：中转站开着没、节点是不是真的通。</p>
+  </div>
+
+  <div class="panel">
+    <h2>博主推荐</h2>
+    <p class="why" style="margin-bottom:10px">博主本机（移动宽带）用下来的时段规律，供参考——你的网络不一样，体感可能就不同：</p>
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">☀️ 白天</b> —— 优先用 <strong>hysteria v1</strong> 和 <strong>VLESS（XHTTP + REALITY）</strong> 的节点，白天这两类最稳，速度也在线。</p>
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">🌙 晚上</b> —— 换 <strong>hysteria2</strong> 的节点更顺。</p>
+    <p class="why">懒得手动切就交给客户端的「自动选择」，它会自己挑当下能用的；要是怎么切都不顺，先回面板点一次「立即更新」——大概率是节点过期了，不是你的问题。</p>
   </div>
 </main>
 
@@ -409,12 +445,12 @@ function render() {
         <div class="arrow">→</div>
         <div class="box new"><div class="cap">这次拉到${nodes.length > 1 ? `（${nodes.length} 个节点）` : ''}</div>${nodes.map((nd, i) => nodeBlock(nd, i, nodes.length)).join('')}</div>
       </div>
-      <div class="hint-ok">✅ 链接生成好了，复制粘进 v2rayN 就能用，不用先下载配置文件。</div>
+      <div class="hint-ok">✅ 复制链接，粘进 v2rayN 就能用。</div>
       <details class="raw"><summary>看看原始配置（一般不用管）</summary><pre class="rawbox">${esc(FETCHED.raw||'')}</pre></details>`;
   } else {
     body = `
       <h2>${t.label} · 选一个源</h2>
-      <p class="desc">源1、源2 就是原来 ip_1.bat、ip_2.bat 的编号。不用准备任何东西，直接点就行。</p>
+      <p class="desc">源1、源2 就是原来 ip_1.bat、ip_2.bat 的编号。</p>
       ${slotsHtml}
       <button class="btn" id="fetchBtn" onclick="doFetch()">⚡ 拉这个源看看</button>`;
   }
@@ -429,63 +465,59 @@ async function loadExt() {
     const btn = document.getElementById('extBtn');
     if (d.refreshing) {
       _extWasRefreshing = true;
-      document.getElementById('extInfo').textContent = '⏳ 正在下载这些源，再逐个实测能不能连上（每个源上百个节点，约 2-5 分钟，可以先干别的）…';
+      document.getElementById('extInfo').textContent = '⏳ 正在下载源、TCP 节点挨个试连…（一分多钟）';
       btn.disabled = true;
-      setTimeout(loadExt, 8000);
+      setTimeout(loadExt, 4000);
     } else {
       btn.disabled = false;
-      if (_extWasRefreshing) {  // 刷新刚完成的瞬间：给出明确结果和下一步（失败的源如实说，不冒充成功）
+      if (_extWasRefreshing) {  // 刷新刚完成的瞬间：给出明确结果（失败的源如实说，不冒充成功）
         _extWasRefreshing = false;
         const done = document.getElementById('extDone');
         const parts = d.ext.map(e => e.error
           ? `<b>${esc(e.label)}</b> 没更新成功，先用上次的`
-          : `<b>${esc(e.label)}</b> 共 ${e.total} 个，能连上 ${e.alive} 个${e.udp ? `，外加 ${e.udp} 个 QUIC` : ''}，留下 ${e.keep} 个`);
-        const failedAll = d.ext.every(e => e.error);
-        done.innerHTML = failedAll
-          ? `⚠️ 这次一个源都没更新成功（原因见上面），订阅继续用上次拿到的节点，客户端照常能用 —— 把网络修好后点「立即更新」或等下一轮自动重试`
-          : `✅ 公共源更新完了：${parts.join('；')}。去掉重复后挑出最快的 ${d.keep_total} 条${d.keep_udp ? ` + 最多 ${d.keep_udp} 条 QUIC` : ''}放进订阅 —— 去 v2rayN / Clash Verge 点一下「更新订阅」就能用`;
+          : `<b>${esc(e.label)}</b> 留下 ${e.keep} 个`);
+        done.innerHTML = d.ext.every(e => e.error)
+          ? `⚠️ 这次一个源都没更新成功，订阅继续用上次的节点 —— 网络修好后点「立即更新」`
+          : `✅ 更新完了：${parts.join('；')} —— 去客户端点一下「更新订阅」就能用`;
         done.hidden = false;
       }
-      const net = d.proxy ? `借本机代理上网（${esc(d.proxy.replace('http://', ''))}）`
-                          : (d.proxy_checked ? '没找到本机代理，走的是直连 —— GitHub 上的源多半拉不到' : '正在看网络情况…');
-      if (!d.proxy_checked && (loadExt._probed = (loadExt._probed || 0) + 1) <= 4) {
-        setTimeout(loadExt, 5000);  // 探测最长 17 秒（要挨个试本机端口），多读几次才有结果
-      }
-      document.getElementById('extInfo').textContent = `每 ${d.every_min} 分钟自动更新 · 下次约 ${d.next_refresh} · 各源合起来挑最快的 ${d.keep_total} 条${d.keep_udp ? ` + ${d.keep_udp} 条 QUIC` : ''}放进订阅 · ${net}`;
+      const net = d.proxy ? `走你填的代理（${esc(d.proxy.replace('http://', ''))}）`
+                          : (d.proxy_checked ? '没填代理，走直连 + 镜像' : '正在看网络情况…');
+      document.getElementById('extInfo').textContent = `收 6 种协议 · TCP 系测活后最多 ${d.keep_tcp} 条 · hy1 免检最多 ${d.keep_hy1} 条 · hy2 免检最多 ${d.keep_hy2} 条 · ${net}`;
     }
-    const on = !!d.drop_vmess;
-    document.getElementById('dropVm').checked = on;
-    document.getElementById('dropVmWrap').classList.toggle('on', on);
+    const pi = document.getElementById('proxyInput');
+    if (pi !== document.activeElement)  // 正在打字时别覆盖输入框
+      pi.value = d.proxy_cfg || '';
     document.getElementById('extRows').innerHTML = d.ext.map(e => {
       if (e.error) {
         const when = e.failed_at ? `（${esc(e.failed_at)}）` : '';
-        const old = e.fetched ? `订阅里还是 ${esc(e.fetched)} 拿到的节点，照样能用` : '还没有可用节点';
-        const next = d.refreshing ? '这次正在重试，稍等' : `每 ${d.every_min} 分钟自动再试`;
+        const old = e.fetched ? `先用 ${esc(e.fetched)} 的旧数据` : '还没有可用节点';
+        const next = d.refreshing ? '这次正在重试' : '点「立即更新」再试';
         return `<b>${esc(e.label)}</b>：<span style="color:#b45309">⚠️ 上次没更新成功${when}：${esc(e.error)}</span> · ${old} · ${next}`;
       }
-      return `<b>${esc(e.label)}</b>：${e.fetched ? `共 ${e.total} 个链接 → 能连上 ${e.alive} 个${e.alive && !e.keep ? '（但全是 VMess，被过滤了）' : ` → 留下 ${e.keep} 个`}${e.udp ? `（含 ${e.udp} 个未测活的 QUIC）` : ''} · ${esc(e.fetched)} 更新` : '还没有数据，点「立即更新」拉一次'}`;
+      return `<b>${esc(e.label)}</b>：${e.fetched ? `共 ${e.total} 个 → TCP 系 ${e.tcp} 个测活通过 ${e.tcp_alive} · hy1 ${e.hy1} · hy2 ${e.hy2} → 留下 ${e.keep} 个 · ${esc(e.fetched)} 更新` : '还没有数据，点「立即更新」拉一次'}`;
     }).join('<br>');
   } catch (e) { /* 服务未起时静默 */ }
-}
-
-async function doDropVm(on) {
-  document.getElementById('dropVmWrap').classList.toggle('on', on);
-  await fetch('/api/ext_filter', {method:'POST', headers:{'Content-Type':'application/json'},
-                                  body: JSON.stringify({drop_vmess: on})});
-  const hint = document.getElementById('extDone');
-  hint.innerHTML = on
-    ? '✅ 已去掉 VMess：订阅里只留 vless / trojan / ss，节点少了但更耐用。去客户端点一下「更新订阅」生效'
-    : '✅ 不再过滤：VMess 节点也放回订阅了。去客户端点一下「更新订阅」生效';
-  hint.hidden = false;
 }
 
 async function doExtRefresh() {
   const btn = document.getElementById('extBtn');
   btn.disabled = true;
   document.getElementById('extDone').hidden = true;  // 清掉上一轮的结果横幅
-  document.getElementById('extInfo').textContent = '⏳ 开始了：先下载全部源，再逐个实测连通性，约 2-5 分钟…';
+  document.getElementById('extInfo').textContent = '⏳ 正在下载源、TCP 节点挨个试连…（一分多钟）';
   await fetch('/api/ext_refresh', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
   loadExt();
+}
+
+async function doSaveProxy(inp) {
+  const hint = document.getElementById('extDone');
+  try {
+    const r = await (await fetch('/api/proxy', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({proxy: inp.value})})).json();
+    hint.innerHTML = r.ok ? `✅ ${esc(r.hint)}` : `⚠️ 没保存：${esc(r.error)}`;
+  } catch (e) { hint.innerHTML = `⚠️ 没保存：${esc(e)}`; }
+  hint.hidden = false;
+  loadExt();  // 网络状态那行会跟着重探结果刷新
 }
 
 loadTools();

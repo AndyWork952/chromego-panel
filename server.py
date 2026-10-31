@@ -28,27 +28,38 @@ EXT_REFRESHING = False  # 外部订阅源刷新中标志
 EXT_ERRORS = {}         # 源 key -> 最近一次失败原因（成功即清除），用于界面显示"该源失效"
 EXT_ATTEMPT = {}        # 源 key -> 最近一次拉取尝试的时间戳（失败也记，避免自动刷新每分钟重试）
 
-# 外部公共订阅源（2026-10-26 实测存活率最高的两个）：拉取 -> 解析链接 -> TCP 测活 -> 只留活节点
-# mirror 是 jsDelivr CDN 兜底——raw.githubusercontent 在国内网络经常被重置
+# 外部公共订阅源（2026-10-31 逐个实测筛出，兼顾协议互补与更新时段）
+# mirror 是 jsDelivr CDN 兜底，relay 是 wget.la 反代镜像——国内不开代理也能直连
+# 注：Pawdroid 已萎缩到 11 个节点（6 个与现有源重合）不再收录
 EXT_SOURCES = {
-    "aliilapro": dict(label="ALIILAPRO",
-                      url="https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
-                      mirror="https://cdn.jsdelivr.net/gh/ALIILAPRO/v2rayNG-Config@main/sub.txt"),
-    "pawdroid":  dict(label="Pawdroid",
-                      url="https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub",
-                      mirror="https://cdn.jsdelivr.net/gh/Pawdroid/Free-servers@main/sub"),
-    # 每日自动更新，vless/trojan/ss 三协议互补（实测存活率 24%，是三个源里最高的）
+    # 每日自动更新，hy2 数量稳定（实测 28 个上下）
     "ermaozi":   dict(label="ermaozi",
                       url="https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt",
-                      mirror="https://cdn.jsdelivr.net/gh/ermaozi/get_subscribe@main/subscribe/v2ray.txt"),
+                      mirror="https://cdn.jsdelivr.net/gh/ermaozi/get_subscribe@main/subscribe/v2ray.txt",
+                      relay="https://wget.la/https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt"),
+    # hy2 大池：319 个链接 / 131 个独立节点，与 ermaozi 仅重合 5 个（2026-10-31 实测）
+    "cbusifab":  dict(label="cbusifabcap",
+                      url="https://raw.githubusercontent.com/cbusifabcap/daily_free_vpn/main/Z.txt",
+                      mirror="https://cdn.jsdelivr.net/gh/cbusifabcap/daily_free_vpn@main/Z.txt",
+                      relay="https://wget.la/https://raw.githubusercontent.com/cbusifabcap/daily_free_vpn/main/Z.txt"),
+    # 每 6 小时 sing-box 真连接测试 + 国内探针验证（verified/global 两档，global 量更大）
+    "leilao":    dict(label="LeilaoMi真测",
+                      url="https://raw.githubusercontent.com/LeilaoMi/AutoMergePublicNodes-Optimized/main/output/global.urls",
+                      mirror="https://cdn.jsdelivr.net/gh/LeilaoMi/AutoMergePublicNodes-Optimized@main/output/global.urls",
+                      relay="https://wget.la/https://raw.githubusercontent.com/LeilaoMi/AutoMergePublicNodes-Optimized/main/output/global.urls"),
+    # 每日更新的大池：2501 节点与现有三源仅重合 8 个，TCP 存活率 18.8% 为各源最高（2026-10-31 实测）
+    "aliilapro": dict(label="ALIILAPRO",
+                      url="https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
+                      mirror="https://cdn.jsdelivr.net/gh/ALIILAPRO/v2rayNG-Config@main/sub.txt",
+                      relay="https://wget.la/https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"),
 }
-EXT_PROBE_LIMIT = 600  # 每源最多探测的节点数（控制刷新耗时在 1 分钟级）
-EXT_KEEP = 300         # 每源最多保留进缓存的活节点数（控制订阅体积）
-EXT_KEEP_TOTAL = 120   # 跨源合并后进订阅的条数上限（按延迟取最快的，客户端列表才不会长到没法用）
-EXT_KEEP_UDP = 40      # hysteria2 是 UDP，测活测不了，免检收但单独限量
-EXT_REFRESH_MIN = 40   # 自动刷新间隔（分钟）：免费节点寿命是小时级，靠定时刷新比多接源有用
-# 免费源的 vmess 节点存活期通常只有半小时级，vless/trojan 明显耐用；默认过滤掉 vmess，可在面板上关掉
-_ext_cfg = dict(drop_vmess=True)
+EXT_KEEP_TCP = 120     # TCP 系（vmess/vless/trojan/ss）：真握手测活后跨源按延迟从低到高保留
+EXT_KEEP_HY1 = 20      # hysteria v1：QUIC 走 UDP 无法 TCP 握手测活，免检直收
+EXT_KEEP_HY2 = 60      # hysteria2：同上免检直收（用户实测移动宽带对 hy2 兼容最好）
+EXT_PROBE_LIMIT = 800  # 每源最多送测的 TCP 链接数，防超大源把刷新拖成几分钟
+_EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")
+_EXT_SCHEMES = _EXT_TCP_SCHEMES + ("hysteria", "hysteria2")  # 与面板四个槽位类型对应的协议全集
+# 外部源只在一种时机刷新：用户在界面上点「立即更新」按钮
 
 PANEL_DIR = Path(__file__).resolve().parent
 CACHE_DIR = PANEL_DIR / "cache"
@@ -66,20 +77,44 @@ SSL_CTX.verify_mode = ssl.CERT_NONE
 
 
 # ---------- 网络：本地代理自动探测 ----------
-# 为什么需要这一步：GitHub raw 和 jsDelivr 在国内直连基本是 TLS 被重置，而 urllib 只认
-# 环境变量和 Windows 系统代理——v2rayN 用 TUN 模式或没开系统代理时它一条都读不到，
-# 于是三个外部源一起报"拉取失败"，看着像源挂了，其实是本机请求根本没走代理。
-PROXY_CANDIDATES = ("127.0.0.1:10808", "127.0.0.1:10809", "127.0.0.1:10810",
-                    "127.0.0.1:7890", "127.0.0.1:7897", "127.0.0.1:1087", "127.0.0.1:8080")
+# 代理策略（确定性，不自动探测）：界面上填了地址就用它（先真连验证），没填就走直连 + wget.la 镜像。
+# 为什么需要镜像：GitHub raw 和 jsDelivr 在国内直连基本是 TLS 被重置，而 urllib 只认环境变量和
+# Windows 系统代理——客户端软件用 TUN 或没开系统代理时它一条都读不到。
 PROXY_TEST_HOST = ("raw.githubusercontent.com", 443)
 _PROXY = dict(url=None, ts=0.0)
 _PROXY_LOCK = threading.Lock()
-PROXY_OK_TTL = 600   # 探到可用代理后 10 分钟内复用，不再重探
-PROXY_FAIL_TTL = 90  # 没探到就 90 秒后再试（用户中途开 v2rayN 也能自动接上）
+PROXY_OK_TTL = 600   # 验证通过后 10 分钟内复用，不再重验
+PROXY_FAIL_TTL = 90  # 验证不过 90 秒后再试（用户把代理软件开起来后自动接上）
+# 用户在界面上手填的代理地址（如 http://127.0.0.1:7890），存 proxy.json、重启不丢、不进仓库。
+PROXY_CFG_FILE = PANEL_DIR / "proxy.json"
+_user_proxy = ""
+try:
+    _user_proxy = json.loads(PROXY_CFG_FILE.read_text(encoding="utf-8")).get("proxy", "") if PROXY_CFG_FILE.exists() else ""
+except Exception:
+    _user_proxy = ""
+
+
+def normalize_proxy(text: str):
+    """把用户输入整理成 http://host:port；不合法返回 (None, 原因)。socks 系不支持（urllib 用不了）。"""
+    c = (text or "").strip()
+    if not c:
+        return "", None  # 空 = 清除配置，回到自动探测
+    if "://" not in c:
+        c = "http://" + c
+    u = urllib.parse.urlparse(c)
+    if u.scheme in ("socks5", "socks5h", "socks4"):
+        return None, "socks 代理用不了（面板走的是 HTTP 代理）。v2rayN 的 10808、Clash Verge 的 7890 都是混合端口，直接填它们就行"
+    if u.scheme not in ("http", "https") or not u.hostname or not u.port:
+        return None, "格式大概是 http://127.0.0.1:7890 这样（主机 + 端口）"
+    if u.port == PORT:
+        return None, "这是面板自己的端口，不能填"
+    return f"http://{u.hostname}:{u.port}", None
 
 
 def _http_connect_ok(host, port, timeout=2.5):
-    """这个本地端口能否当 HTTP 代理用：CONNECT 目标换来 200 隧道。顺手把 v2rayN 的混合入站认出来。"""
+    """这个本地端口能否当 HTTP 代理用。验证要到底：CONNECT 换来 200 只说明代理进程活着，
+    它背后的节点可能早就挂了（v2rayN 开着但服务器被封很常见）——所以再借隧道真发一次
+    TLS 握手 + HEAD，拿不到 HTTP/ 响应就当它不能用，让位给下一候选（直连 + 镜像兜底）。"""
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
             s.settimeout(timeout)
@@ -91,45 +126,34 @@ def _http_connect_ok(host, port, timeout=2.5):
                 if not chunk:
                     break
                 buf += chunk
-            return b" 200" in buf.split(b"\r\n")[0]
+            if b" 200" not in buf.split(b"\r\n")[0]:
+                return False
+            with SSL_CTX.wrap_socket(s, server_hostname=th) as t:
+                t.sendall(f"HEAD / HTTP/1.1\r\nHost: {th}\r\nConnection: close\r\n\r\n".encode())
+                return b"HTTP/" in t.recv(64)
     except Exception:
         return False
 
 
 def detect_proxy(force=False):
-    """返回可用的本机 HTTP 代理（如 http://127.0.0.1:10808），没有则 None。
-    优先级：PANEL_PROXY / 环境变量 HTTPS_PROXY > 常见客户端端口探测。结果带 TTL 缓存。"""
+    """返回用户在界面上手填的代理地址，没填或填的连不通就 None。
+    故意不做任何自动探测（不扫端口、不读环境变量）：行为要确定——填了就用它，没填就走直连 + 镜像兜底。
+    手填的地址也要真连一次验证（TLS 到底），节点挂了同样视为不可用。结果带 TTL 缓存。"""
     now = time.time()
     with _PROXY_LOCK:
         ttl = PROXY_OK_TTL if _PROXY["url"] else PROXY_FAIL_TTL
         if not force and _PROXY["ts"] and now - _PROXY["ts"] < ttl:
             return _PROXY["url"]
 
-        cands = []
-        for env_key in ("PANEL_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
-            v = os.environ.get(env_key)
-            if v:
-                cands.append(v)
-        cands += [f"http://{p}" for p in PROXY_CANDIDATES]
-
         found = None
-        for c in cands:
-            c = c.strip()
-            if not c:
-                continue
-            if "://" not in c:
-                c = "http://" + c
-            u = urllib.parse.urlparse(c)
-            if u.scheme not in ("http", "https") or not u.hostname or not u.port:
-                continue  # urllib 不支持 socks5，跳过（v2rayN 的 10808 混合入站本身就支持 HTTP）
-            if u.port == PORT:  # 别把自己当代理，会自己连自己
-                continue
-            if _http_connect_ok(u.hostname, u.port):
-                found = f"http://{u.hostname}:{u.port}"
-                break
+        if _user_proxy:
+            u = urllib.parse.urlparse(_user_proxy)
+            if (u.scheme in ("http", "https") and u.hostname and u.port
+                    and u.port != PORT and _http_connect_ok(u.hostname, u.port)):
+                found = _user_proxy
         _PROXY.update(url=found, ts=now)
         if found:
-            print(f"网络：经本机代理 {found} 访问外网")
+            print(f"网络：经代理 {found} 访问外网")
         return found
 
 
@@ -141,7 +165,8 @@ def _open_via(url, timeout, hdrs, proxy):
 
 def open_url(url, timeout=25, headers=None):
     """统一的出网入口：探到本机代理就走代理，没探到就直连（忽略环境里可能存在的无关代理）。
-    代理中途没了（比如用户退出 v2rayN）要立刻作废缓存重探一次，否则最长 10 分钟都拿着死端口重试。"""
+    代理中途坏了（进程退出或节点挂了）不能空手而归：清缓存重探一次，还不行就退到纯直连——
+    GitHub 类站点直连必被掐，但 wget.la 镜像直连是通的，这条退路得留着。"""
     hdrs = {"User-Agent": "Mozilla/5.0 ChromeGoPanel"}
     hdrs.update(headers or {})
     proxy = detect_proxy()
@@ -152,7 +177,10 @@ def open_url(url, timeout=25, headers=None):
             raise
         with _PROXY_LOCK:
             _PROXY.update(url=None, ts=0.0)  # 这个代理已不可用，清掉缓存让下次重新探测
-        return _open_via(url, timeout, hdrs, detect_proxy(force=True))
+        try:
+            return _open_via(url, timeout, hdrs, detect_proxy(force=True))
+        except Exception:
+            return _open_via(url, timeout, hdrs, None)  # 最后兜底：不走代理，直连
 
 
 def _https_ok(host, port=443, timeout=4):
@@ -169,24 +197,20 @@ def _https_ok(host, port=443, timeout=4):
 
 
 def net_diagnosis():
-    """把"两个源都失败"翻译成人话：断网 / 没走代理 / 源真挂了，三种原因处理方式完全不同。"""
+    """把"全都没拉到"翻译成人话：代理失效 / 源真挂了 / 网络不通，三种原因处理方式完全不同。"""
     proxy = detect_proxy()
     if proxy:
-        return f"已经在借 {proxy} 的代理上网，可能是对方源临时挂了，等下轮自动再试"
+        return f"正在走你填的代理 {proxy}，可能是对方源临时挂了，也可能这个代理的节点不通——等会儿再试，或换个代理地址"
     if _https_ok(PROXY_TEST_HOST[0], PROXY_TEST_HOST[1]):
-        return "能访问 GitHub，但这次没取到内容，可能作者改了地址，也可能是网络抽风"
-    return ("这台电脑连不上 GitHub（TLS 被掐），也没找到可用的代理 —— 先把 v2rayN 打开"
-            "（系统代理开不开都行，它的本地端口在就行），再点一次更新；"
-            "想固定用某个代理端口，设环境变量 PANEL_PROXY=http://127.0.0.1:10808 后重启面板")
+        return "能直接访问 GitHub，但这次没取到内容，可能作者改了地址，也可能是网络抽风"
+    return ("直连和镜像都没拉下来，多半是网络整体不通。如果你的代理软件开着，把它的地址"
+            "（比如 http://127.0.0.1:10808 或 7890）填到上面「代理地址」框里再试")
 
 TOOLS = {
     "xray":       dict(label="Xray",        sub="VLESS / REALITY",      config="config.json", remote="xray",       slots=4),
     "clash.meta": dict(label="Clash.Meta",  sub="Hysteria / Hysteria2", config="config.yaml", remote="clash.meta2", slots=6),
     "hysteria":   dict(label="Hysteria v1", sub="QUIC 混淆",           config="config.json", remote="hysteria",   slots=4),
     "hysteria2":  dict(label="Hysteria2",   sub="QUIC",                 config="config.json", remote="hysteria2",  slots=4),
-    "juicity":    dict(label="Juicity",     sub="QUIC + BBR",          config="config.json", remote="juicity",    slots=2),
-    "naiveproxy": dict(label="NaiveProxy",  sub="HTTPS2 伪装",         config="config.json", remote="naiveproxy", slots=2),
-    "singbox":    dict(label="Sing-box",    sub="TUIC / Hysteria",      config="config.json", remote="singbox",    slots=2),
 }
 
 # 没有本地记录时按工具典型协议给的兜底徽章（有记录后以实际解析出的协议为准）
@@ -194,10 +218,7 @@ TOOL_BADGE = {
     "xray":      ("v2rayN 可导入", "ok"),
     "hysteria2": ("v2rayN 可导入", "ok"),
     "clash.meta": ("v2rayN 可导入", "ok"),
-    "singbox":   ("看具体配置", "mid"),   # 槽位可能是 TUIC(可导入) 或 hysteria v1(不可)
     "hysteria":  ("v2rayN 不支持", "no"),
-    "naiveproxy": ("v2rayN 不支持", "no"),
-    "juicity":   ("v2rayN 不支持", "no"),
 }
 
 
@@ -256,7 +277,7 @@ def _qs(params):
 
 
 def _proto_key(protocol):
-    """vless+reality+xhttp -> vless, naive+https -> naive 之类，取主协议名"""
+    """vless+reality+xhttp -> vless，取主协议名用于查客户端支持矩阵"""
     return str(protocol).split("+")[0].split(".")[0]
 
 
@@ -269,11 +290,8 @@ SUPPORT = {
     "trojan":      _ALL_OK,
     "shadowsocks": _ALL_OK,
     "hysteria2":   _ALL_OK,
-    "tuic":        _ALL_OK,
     # hysteria v1：sing-box 和 v2rayN 都删了，但 mihomo 和 NekoRay 还活着
     "hysteria":    {"NekoRay / NekoBox", "mihomo 系（Clash Verge Rev、FlClash）", "ChromeGo 自带 hysteria.exe"},
-    "naive":       {"NekoRay / NekoBox", "ChromeGo 自带 naive.exe（官方核心）"},
-    "juicity":     {"NekoRay / NekoBox", "ChromeGo 自带 juicity-client.exe（官方核心）"},
 }
 
 
@@ -288,14 +306,10 @@ def _clients(protocol):
 def _v2n(protocol):
     """该协议生成的分享链接能否直接导入 v2rayN（7.x，Xray + sing-box 核心）"""
     p = str(protocol)
-    if p.startswith(("vless", "vmess", "trojan", "shadowsocks")) or p in ("hysteria2", "tuic"):
+    if p.startswith(("vless", "vmess", "trojan", "shadowsocks")) or p == "hysteria2":
         return True, ""
-    if p.startswith("naive"):
-        return False, "v2rayN 已移除 NaiveProxy 支持"
     if p == "hysteria":
         return False, "hysteria v1 已被 v2rayN 移除（仅 hysteria2 支持）"
-    if p == "juicity":
-        return False, "v2rayN 不支持 juicity（sing-box 也不认）"
     return False, "私有协议，无标准链接格式"
 
 
@@ -363,83 +377,6 @@ def parse_hysteria2(auth, host, port, sni, insecure, up=None, down=None, label="
                     _hp(host, port) + extra)
 
 
-def parse_tuic(o, label):
-    tls = o.get("tls", {})
-    qs = _qs({"congestion_control": o.get("congestion_control", "bbr"),
-              "alpn": ",".join(tls.get("alpn", ["h3"])),
-              "sni": tls.get("server_name", ""),
-              "allow_insecure": 1 if tls.get("insecure") else 0})
-    url = (f"tuic://{o['uuid']}:{urllib.parse.quote(o['password'])}"
-           f"@{_hp(o['server'], o['server_port'])}?{qs}#{urllib.parse.quote(label)}")
-    return _mk_node("tuic", o["server"], o["server_port"], "uuid+password",
-                    tls.get("server_name"), 1 if tls.get("insecure") else 0, _one(url, label),
-                    _hp(o['server'], o['server_port']))
-
-
-def parse_juicity(d, label):
-    host, _, port = d["server"].rpartition(":")
-    qs = _qs({"sni": d.get("sni", ""),
-              "allow_insecure": 1 if d.get("allow_insecure") else 0,
-              "congestion_control": d.get("congestion_control", "bbr")})
-    url = (f"juicity://{d['uuid']}:{urllib.parse.quote(d['password'])}"
-           f"@{_hp(host, port)}?{qs}#{urllib.parse.quote(label)}")
-    return _mk_node("juicity", host, port, "uuid+password", d.get("sni"),
-                    1 if d.get("allow_insecure") else 0, _one(url, label), d["server"])
-
-
-def parse_naive(d, label):
-    scheme, _, rest = d["proxy"].partition("://")
-    url = f"naive+{scheme}://{rest}#{urllib.parse.quote(label)}"
-    userinfo, _, hostport = rest.rpartition("@")
-    return _mk_node("naive+" + scheme, hostport.rpartition(":")[0], hostport.rpartition(":")[-1],
-                    "user:pass", None, None, _one(url, label), hostport)
-
-
-def parse_singbox_outbound(o, label):
-    t = o.get("type")
-    if t == "tuic":
-        return parse_tuic(o, label)
-    if t == "hysteria2":
-        tls = o.get("tls", {})
-        return parse_hysteria2(o.get("password"), o["server"], o["server_port"],
-                               tls.get("server_name"), 1 if tls.get("insecure") else 0,
-                               o.get("up_mbps"), o.get("down_mbps"), label=label)
-    if t == "hysteria":
-        tls = o.get("tls", {})
-        d = dict(server=f"{o['server']}:{o['server_port']}",
-                 auth_str=o.get("auth_str") or o.get("auth") or "",
-                 server_name=tls.get("server_name", ""),
-                 insecure=1 if tls.get("insecure") else 0,
-                 up_mbps=o.get("up_mbps"), down_mbps=o.get("down_mbps"), alpn=",".join(tls.get("alpn", ["h3"])))
-        return parse_hysteria1(d, label)
-    if t == "vless":
-        tls = o.get("tls", {})
-        qs = _qs({"security": "reality" if tls.get("reality") else ("tls" if tls.get("enabled") else "none"),
-                  "sni": tls.get("server_name", ""), "fp": tls.get("utls", {}).get("fingerprint", ""),
-                  "pbk": (tls.get("reality") or {}).get("public_key", ""),
-                  "sid": (tls.get("reality") or {}).get("short_id", ""),
-                  "type": o.get("transport", {}).get("type", "tcp")})
-        url = f"vless://{o['uuid']}@{_hp(o['server'], o['server_port'])}?{qs}#{urllib.parse.quote(label)}"
-        return _mk_node("vless", o["server"], o["server_port"], "uuid", tls.get("server_name"),
-                        1 if tls.get("insecure") else 0, _one(url, label),
-                        _hp(o['server'], o['server_port']))
-    if t == "trojan":
-        tls = o.get("tls", {})
-        qs = _qs({"sni": tls.get("server_name", ""),
-                  "allowInsecure": 1 if tls.get("insecure") else 0})
-        url = (f"trojan://{urllib.parse.quote(o['password'])}@{_hp(o['server'], o['server_port'])}"
-               f"?{qs}#{urllib.parse.quote(label)}")
-        return _mk_node("trojan", o["server"], o["server_port"], "password", tls.get("server_name"),
-                        1 if tls.get("insecure") else 0, _one(url, label),
-                        _hp(o['server'], o['server_port']))
-    if t == "shadowsocks":
-        userinfo = base64.urlsafe_b64encode(f"{o['cipher']}:{o['password']}".encode()).decode().rstrip("=")
-        url = f"ss://{userinfo}@{_hp(o['server'], o['server_port'])}#{urllib.parse.quote(label)}"
-        return _mk_node("shadowsocks", o["server"], o["server_port"], o["cipher"], None, None,
-                        _one(url, label), f"{_hp(o['server'], o['server_port'])} · {o['cipher']}")
-    return None
-
-
 def parse_clash_proxy(p, label):
     t = p.get("type")
     insecure = 1 if p.get("skip-cert-verify") else 0
@@ -477,9 +414,6 @@ def parse_clash_proxy(p, label):
 
 
 # ---------- 内容驱动的主解析入口 ----------
-SKIP_TYPES = {"direct", "block", "dns", "urltest", "selector", "socks", "http"}
-
-
 def parse_config_text(text: str, label: str):
     """探测配置结构 -> 解析出槽位里的全部节点（一个槽位常塞多个节点）。返回 (nodes, raw)。"""
     try:
@@ -494,17 +428,13 @@ def parse_config_text(text: str, label: str):
 
     nodes = []
     try:
-        if "proxy" in data and "listen" in data:
-            nodes = [parse_naive(data, label)]
-        elif "auth_str" in data and "server" in data:
+        if "auth_str" in data and "server" in data:
             nodes = [parse_hysteria1(data, label)]
         elif "auth" in data and "bandwidth" in data and "server" in data:
             host, _, port = data["server"].rpartition(":")
             tls = data.get("tls", {})
             nodes = [parse_hysteria2(data["auth"], host, port, tls.get("sni"),
                                      1 if tls.get("insecure") else 0, label=label)]
-        elif "uuid" in data and "password" in data and "server" in data:
-            nodes = [parse_juicity(data, label)]
         elif "proxies" in data and isinstance(data["proxies"], list) and data["proxies"]:
             # clash 格式：解析全部支持的代理
             for i, p in enumerate(data["proxies"]):
@@ -517,20 +447,8 @@ def parse_config_text(text: str, label: str):
                                   f"协议 {p.get('type')} 暂不支持转链接，请看原始内容")]
         else:
             obs = data.get("outbounds")
-            if isinstance(obs, list) and obs:
-                if obs[0].get("protocol") == "vless":
-                    nodes = [parse_xray(data, label)]
-                else:
-                    # sing-box 格式：解析全部非占位 outbound
-                    for i, o in enumerate(x for x in obs if x.get("type") not in SKIP_TYPES):
-                        nd = parse_singbox_outbound(o, f"{label}#{i + 1}")
-                        if nd:
-                            nodes.append(nd)
-                    if not nodes:
-                        o = next((x for x in obs if x.get("type") not in SKIP_TYPES), None)
-                        if o:
-                            nodes = [_mk_node(f"singbox/{o.get('type')}", "-", "-", "-", "-", None, [],
-                                              f"协议 {o.get('type')} 暂不支持转链接，请看原始内容")]
+            if isinstance(obs, list) and obs and obs[0].get("protocol") == "vless":
+                nodes = [parse_xray(data, label)]
     except Exception as e:
         return [_mk_node("?", "-", "-", "-", "-", None, [], f"解析失败：{e}")], text
 
@@ -648,8 +566,10 @@ def iter_unique_links(v2n_only=True):
             seen.add(fpk)
             for l in n["links"]:
                 yield l["url"], l["name"]
-    # 外部公共源：进来前已经过真握手测活，且内部已按 (协议,地址,端口) 去重，直接追加
-    for url, name, _, _ in ext_alive():
+    # 外部公共源：TCP 系已测活、hy1/hy2 免检，已按 (协议,地址,端口) 去重并分别限量
+    for url, name, _ in ext_alive():
+        if v2n_only and url.startswith("hysteria://"):
+            continue  # v2rayN 不认 hysteria v1，只让它进 Clash 订阅
         yield url, name
 
 
@@ -755,8 +675,14 @@ def _clash_proxy(url, name):
         p["auth-str"] = q.get("auth", "")
         if q.get("insecure") == "1":
             p.update(ins)
-        if q.get("upmbps"):
-            p.update(up=int(q["upmbps"]), down=int(q.get("downmbps", q["upmbps"])))
+        # 外部源的带宽写法五花八门（"55 Mbps"/"55"），只取开头数字，取不出就不写让 mihomo 用默认值
+        def _mbps(v):
+            m = re.match(r"\d+", str(v))
+            return int(m.group()) if m else None
+        up = _mbps(q.get("upmbps"))
+        if up:
+            down = _mbps(q.get("downmbps", up)) or up
+            p.update(up=up, down=down)
         return p
     if u.scheme == "tuic":
         p = dict(name=name, type="tuic", server=u.hostname, port=u.port, uuid=u.username,
@@ -769,11 +695,11 @@ def _clash_proxy(url, name):
         if q.get("allow_insecure") == "1":
             p.update(ins)
         return p
-    return None  # naive / juicity：mihomo 不支持
+    return None  # 其余协议 mihomo 不支持
 
 
 def build_sub_clash():
-    """Clash / Mihomo 订阅（YAML）。比 base64 订阅多收 hysteria v1，少 naive/juicity。"""
+    """Clash / Mihomo 订阅（YAML）。比 base64 订阅多收 hysteria v1。"""
     proxies, names, taken = [], [], set()
     for url, _ in iter_unique_links(v2n_only=False):
         base = link_name(url)
@@ -781,7 +707,10 @@ def build_sub_clash():
         while name in taken:
             name = f"{base} {i}"
             i += 1
-        p = _clash_proxy(url, name)  # 不支持的协议（naive/juicity）在这里返回 None
+        try:
+            p = _clash_proxy(url, name)  # 不支持的协议在这里返回 None；字段奇葩的坏链接会抛异常
+        except Exception:
+            continue  # 跳过比打挂整个订阅好
         if p:
             proxies.append(p)
             names.append(name)
@@ -802,8 +731,8 @@ def build_sub_clash():
 
 
 # ---------- 外部公共订阅源 ----------
-_EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")     # 可做真握手测活
-_EXT_UDP_SCHEMES = ("hysteria2",)                          # QUIC 走 UDP，测不了，免检直收（抗封锁比 tls 好）
+# 收录与面板四个槽位类型对应的协议：vmess/vless/trojan/ss（TCP 系，真握手测活）+ hysteria/hysteria2
+# （QUIC 走 UDP，无法 TCP 握手测活，免检直收，挑活交给客户端 url-test 组）
 
 def _parse_link(link):
     """分享链接 -> (scheme, host, port)，用于去重和测活。vmess 的地址在 base64 JSON 里。"""
@@ -818,14 +747,22 @@ def _parse_link(link):
         return None
 
 
+def ext_cache_file(key):
+    return CACHE_DIR / f"ext_{key}.json"
+
+
 def _link_tls(link):
-    """链接是否走 TLS 及其 SNI。vmess 看 JSON 的 tls 字段，其余看 security 查询参数。"""
-    scheme, _, rest = link.partition("://")
+    """链接是否走 TLS 及其 SNI。vmess 看 JSON 的 tls 字段；trojan 本身就是 TLS；
+    其余看 security 查询参数。"""
+    scheme = link.partition("://")[0]
     if scheme == "vmess":
         d = _vmess_json(link) or {}
         return d.get("tls") in _VMESS_TLS, d.get("sni") or d.get("host") or ""
     try:
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)
+        u = urllib.parse.urlparse(link)
+        q = urllib.parse.parse_qs(u.query)
+        if scheme == "trojan":
+            return True, (q.get("sni") or [""])[0] or (u.hostname or "")
         return (q.get("security") or [""])[0] in ("tls", "reality"), \
             (q.get("sni") or q.get("host") or [""])[0]
     except Exception:
@@ -834,7 +771,7 @@ def _link_tls(link):
 
 def _link_ws(link):
     """ws/httpupgrade 传输的 (HTTP Host, path)，用于 101 升级探测；非 ws 传输返回 None。"""
-    scheme, _, _ = link.partition("://")
+    scheme = link.partition("://")[0]
     if scheme == "vmess":
         d = _vmess_json(link) or {}
         return (d.get("host") or "", d.get("path") or "/") if d.get("net") in ("ws", "httpupgrade") else None
@@ -867,7 +804,7 @@ def _probe_link(link):
             s.settimeout(4)
             t0 = time.time()
             s.connect(sa)
-            if use_tls:  # 复用模块级 context：每节点新建要重复加载根证书，几百个节点很贵
+            if use_tls:  # 复用模块级 SSL_CTX：每节点新建要重复加载根证书，几百个节点很贵
                 s = SSL_CTX.wrap_socket(s, server_hostname=sni or host)
             if ws is not None:
                 hhost, path = ws
@@ -895,57 +832,63 @@ def _probe_link(link):
     return None
 
 
-def ext_cache_file(key):
-    return CACHE_DIR / f"ext_{key}.json"
-
-
 def refresh_ext(key):
-    """拉取一个外部源 -> 解析去重 -> 并行真握手测活 -> 按延迟保留前 EXT_KEEP 个活节点写缓存。"""
+    """拉取一个外部源 -> 解析去重 -> 分两路处理 -> 写缓存：
+    TCP 系（vmess/vless/trojan/ss）真握手测活，按延迟保留；hy1/hy2 走 UDP 无法 TCP 握手测活，
+    免检直收（挑活交给客户端的 url-test 组）。拉取顺序：raw -> jsDelivr -> wget.la 反代镜像。"""
     src = EXT_SOURCES[key]
+    chain = [(src["url"], "github"), (src["mirror"], "jsDelivr")]
+    if src.get("relay"):
+        chain.append((src["relay"], "wget.la镜像"))
     text, source = None, None
-    for i, url in enumerate((src["url"], src["mirror"], src["url"])):  # raw -> jsDelivr -> raw 重试
+    for i, (url, sname) in enumerate(chain):
         try:
             with open_url(url, timeout=45) as r:
                 text = r.read().decode("utf-8", errors="replace")
-            source = "jsDelivr" if i == 1 else "github"
+            source = sname
             break
         except Exception:
-            if i < 2:
+            if i < len(chain) - 1:
                 time.sleep(2)
     if text is None:
         raise RuntimeError(net_diagnosis())
     if "://" not in text[:4000]:  # 整体 base64 的订阅
         text = base64.b64decode(text.strip() + "=" * (-len(text.strip()) % 4)).decode("utf-8", "replace")
-    links, udp, seen = [], [], set()
+    total, tcp, hy1, hy2, seen = 0, [], [], [], set()
     for line in text.splitlines():
         line = line.strip()
         p = _parse_link(line) if "://" in line else None
-        if not p or p in seen:
+        if not p or p[0] not in _EXT_SCHEMES or p in seen:  # 只收面板四类槽位对应的协议
             continue
         seen.add(p)
-        if p[0] in _EXT_TCP_SCHEMES:
-            links.append(line)
-        elif p[0] in _EXT_UDP_SCHEMES:
-            udp.append(line)
-    udp = udp[:EXT_KEEP_UDP]  # 免检直收，数量得单独限住，否则订阅被 QUIC 节点灌满
-    # 按序截断前先把非 vmess 排前面：ALIILAPRO 的 vless 全堆在文件末尾，不排就一条都测不到
-    links.sort(key=lambda l: l.startswith("vmess://"))
-    pairs = links[:EXT_PROBE_LIMIT]
+        total += 1
+        if p[0] == "hysteria2":
+            hy2.append(line)
+        elif p[0] == "hysteria":
+            hy1.append(line)
+        else:
+            tcp.append(line)
+    # 送测前把 vmess 排后面：公共源的 vless/trojan 常堆在文件末尾，vmess 量大质次，先测更值钱的
+    tcp.sort(key=lambda l: l.startswith("vmess://"))
     with ThreadPoolExecutor(max_workers=60) as ex:
-        results = list(ex.map(lambda l: (l, _probe_link(l)), pairs))
+        results = list(ex.map(lambda l: (l, _probe_link(l)), tcp[:EXT_PROBE_LIMIT]))
     alive = sorted((ms, url) for url, ms in results if ms is not None)
+    keep_tcp = [url for _, url in alive[:EXT_KEEP_TCP]]
+    ms_of = {url: round(ms) for ms, url in alive[:EXT_KEEP_TCP]}
+    keep = keep_tcp + hy1[:EXT_KEEP_HY1] + hy2[:EXT_KEEP_HY2]
     data = dict(fetched=datetime.now().strftime("%Y-%m-%d %H:%M"), source=source,
-                total=len(links), alive=len(alive), udp=len(udp),
-                nodes=[dict(url=url, name=link_name(url), ms=round(ms)) for ms, url in alive[:EXT_KEEP]]
-                      + [dict(url=url, name=link_name(url), ms=None) for url in udp])
+                total=total, tcp=len(tcp), tcp_alive=len(keep_tcp),
+                hy1=min(len(hy1), EXT_KEEP_HY1), hy2=min(len(hy2), EXT_KEEP_HY2), keep=len(keep),
+                nodes=[dict(url=u, name=link_name(u), ms=ms_of.get(u)) for u in keep])
     ext_cache_file(key).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return data
 
 
 def ext_alive():
-    """全部外部源的可用节点：跨源按 (协议,地址,端口) 去重。
-    TCP 节点按延迟升序取最快 EXT_KEEP_TOTAL 条；hysteria2 没有延迟可比，免检接在后面（最多 EXT_KEEP_UDP 条）。"""
-    tcp, udp, seen = [], [], set()
+    """全部外部源的节点：跨源按 (协议,地址,端口) 去重；TCP 系跨源按测活延迟排序后限量，
+    hy1/hy2 免检直收分别限量。TCP 系进缓存前已真握手测活；hy1/hy2 靠客户端的 url-test 组自己挑。"""
+    tcp, hy1, hy2 = [], [], []  # tcp 元素带测活延迟 ms，跨源统一排序
+    seen = set()
     for key in EXT_SOURCES:
         f = ext_cache_file(key)
         if not f.exists():
@@ -955,60 +898,43 @@ def ext_alive():
         except Exception:
             continue
         for n in d.get("nodes", []):
-            if _ext_cfg["drop_vmess"] and n["url"].startswith("vmess://"):
-                continue
             p = _parse_link(n["url"])
-            if not p or p in seen:
+            if not p or p[0] not in _EXT_SCHEMES or p in seen:  # 协议过滤兜底：旧版缓存只存了别的协议也不放行
                 continue
             seen.add(p)
-            row = (n["url"], n["name"], n.get("ms") or 0, d.get("fetched", ""))
-            (tcp if n.get("ms") is not None else udp).append(row)
-    tcp.sort(key=lambda x: x[2])  # 延迟升序：订阅里先出现最快的
-    return tcp[:EXT_KEEP_TOTAL] + udp[:EXT_KEEP_UDP]
-
-
-def ext_stale():
-    """任一源需要刷新 -> True。用"最近一次尝试"而不是只看缓存 mtime：
-    刷新失败的源 mtime 不会更新，只看 mtime 会导致每分钟重试、把失败源反复打一遍。"""
-    now = time.time()
-    for key in EXT_SOURCES:
-        f = ext_cache_file(key)
-        last = max(f.stat().st_mtime if f.exists() else 0, EXT_ATTEMPT.get(key, 0))
-        if now - last > EXT_REFRESH_MIN * 60:
-            return True
-    return False
-
-
-def next_refresh_at():
-    """下一次自动刷新的预计时间（取最早到期的那个源）；有源从没拉过就返回"即将"。"""
-    nxt = []
-    for key in EXT_SOURCES:
-        f = ext_cache_file(key)
-        last = max(f.stat().st_mtime if f.exists() else 0, EXT_ATTEMPT.get(key, 0))
-        if not last:
-            return "即将"
-        nxt.append(last + EXT_REFRESH_MIN * 60)
-    return datetime.fromtimestamp(min(nxt)).strftime("%H:%M") if nxt else "即将"
+            if p[0] == "hysteria2":
+                hy2.append((n["url"], n["name"], d.get("fetched", "")))
+            elif p[0] == "hysteria":
+                hy1.append((n["url"], n["name"], d.get("fetched", "")))
+            else:
+                tcp.append((n.get("ms") or 99999, n["url"], n["name"], d.get("fetched", "")))
+    tcp.sort(key=lambda t: t[0])  # 各源各自排过序，这里跨源再统一排一次，截断才公平
+    return ([(u, n, f) for _, u, n, f in tcp[:EXT_KEEP_TCP]]
+            + hy1[:EXT_KEEP_HY1] + hy2[:EXT_KEEP_HY2])
 
 
 def refresh_ext_all(background=True):
-    """刷新全部外部源。默认后台跑（全量测活要 1-2 分钟），立即返回。已在刷新时直接跳过。"""
+    """刷新全部外部源。默认后台跑，**四个源并行**（各自下载 + 真握手测活，总耗时约等于最慢
+    的一个源，通常一分多钟），立即返回。已在刷新时直接跳过。"""
     global EXT_REFRESHING
     if EXT_REFRESHING:
         return False
     EXT_REFRESHING = True
 
+    def refresh_one(key):
+        EXT_ATTEMPT[key] = time.time()
+        try:
+            refresh_ext(key)
+            EXT_ERRORS.pop(key, None)
+        except Exception as e:
+            EXT_ERRORS[key] = str(e)
+            print(f"外部源 {key} 刷新失败: {e}")
+
     def work():
         global EXT_REFRESHING
         try:
-            for key in EXT_SOURCES:
-                EXT_ATTEMPT[key] = time.time()
-                try:
-                    refresh_ext(key)
-                    EXT_ERRORS.pop(key, None)
-                except Exception as e:
-                    EXT_ERRORS[key] = str(e)
-                    print(f"外部源 {key} 刷新失败: {e}")
+            with ThreadPoolExecutor(max_workers=len(EXT_SOURCES)) as ex:
+                list(ex.map(refresh_one, EXT_SOURCES))
         finally:
             EXT_REFRESHING = False
 
@@ -1017,18 +943,6 @@ def refresh_ext_all(background=True):
     else:
         work()
     return True
-
-
-def auto_refresh_ext():
-    """后台定时刷新：每分钟检查一次缓存年龄，超过 EXT_REFRESH_MIN 就重新拉一遍。
-    免费节点寿命是小时级，自动刷新比多接几个源有用得多。"""
-    while True:
-        try:
-            if ext_stale():
-                refresh_ext_all(background=False)
-        except Exception as e:
-            print(f"自动刷新异常: {e}")
-        time.sleep(60)
 
 
 # ---------- 本地状态 ----------
@@ -1089,22 +1003,21 @@ class Handler(BaseHTTPRequestHandler):
                 f = ext_cache_file(key)
                 try:
                     d = json.loads(f.read_text(encoding="utf-8"))
-                    nodes = d.get("nodes", [])
-                    keep = sum(1 for n in nodes
-                               if not (_ext_cfg["drop_vmess"] and n["url"].startswith("vmess://")))
                     info.update(fetched=d.get("fetched"), total=d.get("total"),
-                                alive=d.get("alive"), keep=keep, udp=d.get("udp", 0))
+                                tcp=d.get("tcp", 0), tcp_alive=d.get("tcp_alive", 0),
+                                hy1=d.get("hy1", 0), hy2=d.get("hy2", 0),
+                                keep=len(d.get("nodes", [])))
                 except Exception:
-                    info.update(fetched=None, total=None, alive=None, keep=0, udp=0)
+                    info.update(fetched=None, total=None, tcp=0, tcp_alive=0, hy1=0, hy2=0, keep=0)
                 info["failed_at"] = (datetime.fromtimestamp(EXT_ATTEMPT[key]).strftime("%H:%M")
                                      if key in EXT_ATTEMPT else None)  # 失败原因属于哪一轮，避免旧失败记录误导
                 info["error"] = EXT_ERRORS.get(key)
                 exts.append(info)
-            proxy = _PROXY["url"]  # 只回缓存值，不在请求线程里现探（探测最长十几秒）
-            self._json(dict(ext=exts, refreshing=EXT_REFRESHING, drop_vmess=_ext_cfg["drop_vmess"],
-                            keep_total=EXT_KEEP_TOTAL, keep_udp=EXT_KEEP_UDP, every_min=EXT_REFRESH_MIN,
+            proxy = _PROXY["url"]  # 只回缓存值，不在请求线程里现探
+            self._json(dict(ext=exts, refreshing=EXT_REFRESHING,
+                            keep_tcp=EXT_KEEP_TCP, keep_hy1=EXT_KEEP_HY1, keep_hy2=EXT_KEEP_HY2,
                             proxy=proxy, proxy_checked=bool(_PROXY["ts"]),
-                            next_refresh=next_refresh_at()))
+                            proxy_cfg=_user_proxy))
         elif self.path == "/sub":
             ua = self.headers.get("User-Agent", "").lower()
             if "clash" in ua or "mihomo" in ua:
@@ -1122,14 +1035,27 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(error="请求体不是合法 JSON"), 400)
 
         if self.path == "/api/ext_refresh":
-            if EXT_REFRESHING:  # 连点两下别起两个线程同时测活
+            if EXT_REFRESHING:  # 连点两下别起两个刷新线程
                 return self._json(dict(ok=True, hint="已在刷新中"))
             refresh_ext_all(background=True)
-            return self._json(dict(ok=True, hint="后台刷新中，约 1-2 分钟后完成"))
+            return self._json(dict(ok=True, hint="后台刷新中，TCP 节点要真握手测活，通常一分多钟"))
 
-        if self.path == "/api/ext_filter":
-            _ext_cfg["drop_vmess"] = bool(body.get("drop_vmess"))
-            return self._json(dict(ok=True, drop_vmess=_ext_cfg["drop_vmess"]))
+        if self.path == "/api/proxy":
+            global _user_proxy
+            norm, err = normalize_proxy(body.get("proxy", ""))
+            if err:
+                return self._json(dict(ok=False, error=err))
+            _user_proxy = norm
+            try:
+                PROXY_CFG_FILE.write_text(json.dumps({"proxy": norm}, ensure_ascii=False), encoding="utf-8")
+            except Exception as e:
+                return self._json(dict(ok=False, error=f"保存失败：{e}"))
+            with _PROXY_LOCK:  # 配置变了立刻作废探测缓存，后台重探一次
+                _PROXY.update(url=None, ts=0.0)
+            threading.Thread(target=detect_proxy, args=(True,), daemon=True).start()
+            hint = ("已保存，面板会优先走这个代理（连不通会自动落到直连 + 镜像）" if norm
+                    else "已清除。以后不自动试代理，直接走直连 + 镜像")
+            return self._json(dict(ok=True, hint=hint))
 
         if self.path == "/api/fetch_all":
             try:
@@ -1175,10 +1101,9 @@ def main():
         print("预热完成：全部槽位缓存就绪")
     WARMING = True
     threading.Thread(target=_warm, daemon=True).start()
-    # 外部源：每分钟检查缓存年龄，超过 40 分钟就自动重拉（首次启动缓存为空也会立刻拉）
-    # 另外启动时先探一次代理：缓存还新鲜时不会有刷新来触发探测，面板会一直显示"正在看网络情况"
+    # 外部源完全靠用户手点「立即更新」，不做任何自动拉取；启动时先探一次代理，
+    # 不然没有刷新请求来触发探测，面板会一直显示"正在看网络情况"
     threading.Thread(target=detect_proxy, daemon=True).start()
-    threading.Thread(target=auto_refresh_ext, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 
