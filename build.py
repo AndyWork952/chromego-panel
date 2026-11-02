@@ -41,7 +41,9 @@ print(" ".join(cmd))
 subprocess.run(cmd, check=True, cwd=ROOT)
 
 ext = ".exe" if platform.system() == "Windows" else ""
+# macOS 上 platform.system() 是 "Darwin"，统一叫 macos，和 CI 上传路径 / README 的文件名一致
+system = {"Darwin": "macos"}.get(platform.system(), platform.system().lower())
 out = ROOT / "dist" / f"ChromeGoPanel{ext}"
-final = ROOT / "dist" / f"ChromeGoPanel-{platform.system().lower()}-{arch}{ext}"
+final = ROOT / "dist" / f"ChromeGoPanel-{system}-{arch}{ext}"
 out.replace(final)
 print(f"\n打包完成 -> {final}")
