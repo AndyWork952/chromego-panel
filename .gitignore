@@ -12,3 +12,8 @@ __pycache__/
 *.pyc
 *.log
 .venv/
+
+# 打包产物（build.py / CI 生成，不入库）
+build/
+dist/
+*.spec

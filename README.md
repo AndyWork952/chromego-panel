@@ -2,7 +2,20 @@
 
 本地 Web 工具：拉取 ChromeGo 免费节点池各槽位的配置，解析成 v2rayN 可直接导入的分享链接和订阅，支持新旧配置对比与全槽位去重汇总。数据只落在本地 `cache/`。
 
-## 运行
+## 下载即用（推荐小白）
+
+不用装 Python：到 [Releases](../../releases) 下载对应平台的单文件，双击即可（自动打开浏览器）：
+
+| 平台 | 文件 | 说明 |
+|---|---|---|
+| Windows | `ChromeGoPanel-windows-x64.exe` | SmartScreen 首次提示"未知发布者"时点「更多信息 → 仍要运行」 |
+| macOS (Intel) | `ChromeGoPanel-macos-x64` | 首次被 Gatekeeper 拦时在终端执行 `xattr -d com.apple.quarantine ChromeGoPanel-macos-*` 再双击 |
+| macOS (Apple Silicon) | `ChromeGoPanel-macos-arm64` | 同上 |
+| Linux | `ChromeGoPanel-linux-x64` | `chmod +x` 后运行；CentOS 7+ / Ubuntu 18.04+ / Debian 10+ 通用 |
+
+`cache/`、`proxy.json` 等数据始终生成在程序文件旁边，升级时换个新文件即可，数据不丢。
+
+## 运行（源码方式）
 
 ```bash
 pip install -r requirements.txt
@@ -10,6 +23,10 @@ python server.py
 ```
 
 打开 http://127.0.0.1:8765 ，订阅地址 http://127.0.0.1:8765/sub 按客户端 User-Agent 自动分流格式：v2rayN 拿到 base64 分享链接列表，Clash Verge / mihomo 系拿到 YAML 配置（含 hysteria v1）。
+
+## 自己打包
+
+在目标平台上执行 `pip install pyinstaller pyyaml && python build.py`，产物在 `dist/`。三平台自动构建见 `.github/workflows/build.yml`（Actions 手动触发或推 `v*` 标签）。
 
 ## 依赖
 

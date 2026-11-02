@@ -12,10 +12,12 @@ import os
 import re
 import socket
 import ssl
+import sys
 import threading
 import time
 import urllib.request
 import urllib.parse
+import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -61,7 +63,16 @@ _EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")
 _EXT_SCHEMES = _EXT_TCP_SCHEMES + ("hysteria", "hysteria2")  # 与面板四个槽位类型对应的协议全集
 # 外部源只在一种时机刷新：用户在界面上点「立即更新」按钮
 
-PANEL_DIR = Path(__file__).resolve().parent
+# ---------- 打包（PyInstaller 单文件）后的路径分离 ----------
+# 素材（index.html）被打进可执行文件，运行时解包到临时目录 _MEIPASS；用户数据（cache/、
+# proxy.json）必须落在 exe 旁边——用户升级时换个新 exe，缓存和配置都还在。
+# 源码方式运行时两者是同一个目录，行为不变。
+FROZEN = getattr(sys, "frozen", False)
+if FROZEN:
+    ASSET_DIR = Path(getattr(sys, "_MEIPASS", None) or Path(sys.executable).resolve().parent)
+    PANEL_DIR = Path(sys.executable).resolve().parent
+else:
+    ASSET_DIR = PANEL_DIR = Path(__file__).resolve().parent
 CACHE_DIR = PANEL_DIR / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
@@ -980,7 +991,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             # 禁缓存：页面迭代频繁，浏览器缓存旧 JS 会导致新功能"没生效"
-            self._send((PANEL_DIR / "index.html").read_bytes(), "text/html; charset=utf-8",
+            self._send((ASSET_DIR / "index.html").read_bytes(), "text/html; charset=utf-8",
                        Cache_Control="no-store, must-revalidate")
         elif self.path == "/api/tools":
             tools = []
@@ -1090,9 +1101,18 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global WARMING
-    print(f"ChromeGo 节点面板  ->  http://127.0.0.1:{PORT}")
+    url = f"http://127.0.0.1:{PORT}"
+    print(f"ChromeGo 节点面板  ->  {url}")
     print(f"面板目录          ->  {PANEL_DIR}")
     print(f"配置缓存          ->  {CACHE_DIR}")
+    print("关闭这个窗口即退出面板")
+    try:
+        httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError:
+        # 双击两次 exe 的场景：端口被占说明已经开着一个面板了，把浏览器带过去就退场
+        print(f"端口 {PORT} 已被占用——面板多半已经开着，正在打开浏览器…")
+        webbrowser.open(url)
+        return
     # 后台预热：把缺缓存的槽位拉一遍，"同源N"标记和 /sub 第一次用就有数据
     def _warm():
         global WARMING
@@ -1104,7 +1124,10 @@ def main():
     # 外部源完全靠用户手点「立即更新」，不做任何自动拉取；启动时先探一次代理，
     # 不然没有刷新请求来触发探测，面板会一直显示"正在看网络情况"
     threading.Thread(target=detect_proxy, daemon=True).start()
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    # 打包版面向小白：启动后自动开浏览器（源码运行不加打扰，要开可用 --open 参数）
+    if FROZEN or "--open" in sys.argv:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    httpd.serve_forever()
 
 
 if __name__ == "__main__":
