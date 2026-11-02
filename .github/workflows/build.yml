@@ -44,11 +44,21 @@ jobs:
           path: dist/ChromeGoPanel-macos-${{ matrix.arch }}
 
   linux:
+    # 不能整个 job 跑在 manylinux 容器里：runner 的 node24 要求 glibc 2.28+，而
+    # manylinux2014（CentOS 7 底座）只有 2.17，连 actions/checkout 都起不来。
+    # 所以 checkout/上传在宿主机，只把编译这一步放进容器。
     runs-on: ubuntu-latest
-    container: quay.io/pypa/manylinux2014_x86_64
     steps:
       - uses: actions/checkout@v4
-      - run: PY=$(ls /opt/python/cp312*/bin/python3 | head -1) && $PY -m pip install pyyaml pyinstaller && $PY build.py
+      - name: Build in manylinux2014（glibc 2.17，兼容 CentOS 7+ / Ubuntu 18.04+ / Debian 10+）
+        run: |
+          docker run --rm -v "$PWD:/io" quay.io/pypa/manylinux2014_x86_64 bash -c '
+            set -e
+            PY=$(ls /opt/python/cp312*/bin/python3 | head -1)
+            $PY -m pip install pyyaml pyinstaller
+            cd /io && $PY build.py
+          '
+          sudo chown -R "$(id -u):$(id -g)" dist   # 容器里 root 写的，宿主机上传前改回属主
       - uses: actions/upload-artifact@v4
         with:
           name: ChromeGoPanel-linux-x64
