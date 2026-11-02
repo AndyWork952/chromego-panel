@@ -9,6 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows 控制台默认 cp1252/cp936，下面的中文输出会 UnicodeEncodeError，先强制 UTF-8
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parent
 
 try:
