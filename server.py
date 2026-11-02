@@ -10,6 +10,7 @@ import base64
 import json
 import os
 import re
+import secrets
 import socket
 import ssl
 import sys
@@ -222,14 +223,6 @@ TOOLS = {
     "clash.meta": dict(label="Clash.Meta",  sub="Hysteria / Hysteria2", config="config.yaml", remote="clash.meta2", slots=6),
     "hysteria":   dict(label="Hysteria v1", sub="QUIC 混淆",           config="config.json", remote="hysteria",   slots=4),
     "hysteria2":  dict(label="Hysteria2",   sub="QUIC",                 config="config.json", remote="hysteria2",  slots=4),
-}
-
-# 没有本地记录时按工具典型协议给的兜底徽章（有记录后以实际解析出的协议为准）
-TOOL_BADGE = {
-    "xray":      ("v2rayN 可导入", "ok"),
-    "hysteria2": ("v2rayN 可导入", "ok"),
-    "clash.meta": ("v2rayN 可导入", "ok"),
-    "hysteria":  ("v2rayN 不支持", "no"),
 }
 
 
@@ -479,28 +472,9 @@ def _all_jobs():
     return [(k, s) for k, t in TOOLS.items() for s in range(1, t["slots"] + 1)]
 
 
-def slot_dup_tags(tool_key: str, slots: int):
-    """根据缓存判断哪些槽位内容和其他槽位重复。返回 ["同源1", None, ...]（None=不重复或没拉过）。"""
-    tags = [None] * slots
-    seen = {}  # 指纹 -> 首次出现的槽位号
-    for s in range(1, slots + 1):
-        text = read_cached(tool_key, s)
-        if not text:
-            continue
-        nodes, _ = parse_config_text(text, "")
-        fp = tuple(nodes_fingerprint(nodes))
-        if not fp:  # 解析失败的空指纹不参与重复判断
-            continue
-        if fp in seen:
-            tags[s - 1] = f"同源{seen[fp]}"
-        else:
-            seen[fp] = s
-    return tags
-
-
 def warm_cache():
     """冷启动预热：cache/ 是运行时产物（clone 下来是空的），后台并发把全部槽位拉一遍写进缓存，
-    这样"同源N"标记和 /sub 订阅第一次用就有数据。"""
+    这样 /sub 订阅第一次用就有数据。"""
     jobs = [j for j in _all_jobs() if not read_cached(*j)]
     if not jobs:
         return
@@ -956,18 +930,30 @@ def refresh_ext_all(background=True):
     return True
 
 
-# ---------- 本地状态 ----------
-def local_summary(tool_key: str):
-    """工具列表里显示的本地概要：该工具所有槽位缓存里最新的一份。"""
-    t = TOOLS[tool_key]
-    best = max(CACHE_DIR.glob(f"{tool_key}_ip*"), key=lambda f: f.stat().st_mtime, default=None)
-    if best:
-        slot = int(re.search(r"_ip(\d+)", best.name).group(1))
-        nodes, _ = parse_config_text(best.read_text(encoding="utf-8", errors="replace"), f"{t['label']}-ip{slot}")
-        return dict(node=nodes[0], count=len(nodes),
-                    mtime=datetime.fromtimestamp(best.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
-                    source=f"上次拉的（源{slot}）")
-    return None
+# ---------- 订阅访问令牌 ----------
+# /sub 不设防时，知道端口就能拉走全量节点；订阅地址一旦被转发出去，几百条明文链接全泄。
+# 用随机 token 做访问控制：/sub/<token> 才有数据，裸 /sub 一律 403——地址只在面板上展示，
+# 转发出去的 URL 没有 token 就拉不到任何节点。token 只生成一次并落盘 sub.json：
+# 客户端订阅地址不能漂移，重启、升级换新程序都不变（sub.json 不入库）。
+SUB_CFG_FILE = PANEL_DIR / "sub.json"
+
+
+def _load_sub_token():
+    try:
+        t = json.loads(SUB_CFG_FILE.read_text(encoding="utf-8")).get("token", "")
+        if t:
+            return t
+    except Exception:
+        pass
+    t = secrets.token_urlsafe(16)
+    try:
+        SUB_CFG_FILE.write_text(json.dumps({"token": t}, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass  # 写不进去（只读目录等）就退回进程内临时 token，本次运行仍受保护
+    return t
+
+
+SUB_TOKEN = _load_sub_token()
 
 
 # ---------- HTTP ----------
@@ -994,19 +980,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send((ASSET_DIR / "index.html").read_bytes(), "text/html; charset=utf-8",
                        Cache_Control="no-store, must-revalidate")
         elif self.path == "/api/tools":
-            tools = []
-            for key, t in TOOLS.items():
-                loc = local_summary(key)
-                if loc and loc.get("node") and loc["node"].get("protocol") not in ("?", None):
-                    # 徽章跟随本地实际配置的协议（槽位内容会漂移，比如 clash.meta 槽位现在是 hysteria v1）
-                    badge = ("v2rayN 可导入", "ok") if loc["node"].get("v2n") else ("v2rayN 不支持", "no")
-                else:
-                    badge = TOOL_BADGE[key]  # 没有本地记录时按工具的典型协议标注
-                tools.append(dict(key=key, label=t["label"], sub=t["sub"], slots=t["slots"],
-                                  badge=badge, local=loc,
-                                  slot_tags=slot_dup_tags(key, t["slots"])))
-            self._json(dict(panel_dir=str(PANEL_DIR), tools=tools, warming=WARMING,
-                            sub_url=f"http://127.0.0.1:{PORT}/sub"))
+            # 槽位级手动拉取（/api/fetch）已砍掉，这个接口只剩订阅地址和预热状态
+            self._json(dict(panel_dir=str(PANEL_DIR), warming=WARMING,
+                            sub_url=f"http://127.0.0.1:{PORT}/sub/{SUB_TOKEN}"))
         elif self.path == "/api/ext":
             exts = []
             for key, src in EXT_SOURCES.items():
@@ -1029,7 +1005,14 @@ class Handler(BaseHTTPRequestHandler):
                             keep_tcp=EXT_KEEP_TCP, keep_hy1=EXT_KEEP_HY1, keep_hy2=EXT_KEEP_HY2,
                             proxy=proxy, proxy_checked=bool(_PROXY["ts"]),
                             proxy_cfg=_user_proxy))
-        elif self.path == "/sub":
+        elif self.path == "/sub" or self.path.startswith("/sub/"):
+            # 只有带对 token 的地址才吐节点：裸 /sub（老地址/猜的地址）一律 403 并给出人话指引，
+            # 客户端「更新订阅」失败时用户能看懂去面板复制新地址
+            given = self.path[5:].rstrip("/")
+            if given != SUB_TOKEN:
+                self._send("订阅地址无效：请打开 ChromeGo 面板，复制上面展示的订阅地址（老地址已停用）".encode("utf-8"),
+                           "text/plain; charset=utf-8", 403)
+                return
             ua = self.headers.get("User-Agent", "").lower()
             if "clash" in ua or "mihomo" in ua:
                 # Clash Verge 等只认 YAML 格式订阅，v2rayN 认 base64 链接列表，按 UA 分流
@@ -1075,28 +1058,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._json(dict(error=str(e)), 502)
 
-        if self.path != "/api/fetch":
-            return self._json(dict(error="not found"), 404)
-        tool = body.get("tool")
-        try:
-            slot = int(body.get("slot", 1))
-        except (TypeError, ValueError):
-            return self._json(dict(error="源编号必须是数字"), 400)
-        if tool not in TOOLS:
-            return self._json(dict(error=f"未知工具 {tool}"), 400)
-        if not (1 <= slot <= TOOLS[tool]["slots"]):
-            return self._json(dict(error=f"没有这个源，{TOOLS[tool]['label']} 只有源1~源{TOOLS[tool]['slots']}"), 400)
-        try:
-            text, source = fetch_remote(tool, slot)
-            nodes, _ = parse_config_text(text, f"{TOOLS[tool]['label']}-ip{slot}")
-            old_text = read_cached(tool, slot)
-            old_nodes = parse_config_text(old_text, f"{TOOLS[tool]['label']}-旧")[0] if old_text else []
-            changed = nodes_fingerprint(old_nodes) != nodes_fingerprint(nodes) if old_nodes else None
-            write_cache(tool, slot, text)  # 每次拉取都更新缓存（冷启动后下一次就有"上次拉取"了）
-            return self._json(dict(source=source, nodes=nodes, old_nodes=old_nodes,
-                                   changed=changed, raw=text, first_time=not old_nodes))
-        except Exception as e:
-            return self._json(dict(error=str(e)), 502)
+        return self._json(dict(error="not found"), 404)
 
 
 def main():
@@ -1113,7 +1075,7 @@ def main():
         print(f"端口 {PORT} 已被占用——面板多半已经开着，正在打开浏览器…")
         webbrowser.open(url)
         return
-    # 后台预热：把缺缓存的槽位拉一遍，"同源N"标记和 /sub 第一次用就有数据
+    # 后台预热：把缺缓存的槽位拉一遍，/sub 订阅第一次用就有数据
     def _warm():
         global WARMING
         warm_cache()

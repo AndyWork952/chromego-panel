@@ -22,7 +22,7 @@ pip install -r requirements.txt
 python server.py
 ```
 
-打开 http://127.0.0.1:8765 ，订阅地址 http://127.0.0.1:8765/sub 按客户端 User-Agent 自动分流格式：v2rayN 拿到 base64 分享链接列表，Clash Verge / mihomo 系拿到 YAML 配置（含 hysteria v1）。
+打开 http://127.0.0.1:8765 ，订阅地址在面板「全部线路 · 已去重」区展示（形如 `http://127.0.0.1:8765/sub/<随机密钥>`），按客户端 User-Agent 自动分流格式：v2rayN 拿到 base64 分享链接列表，Clash Verge / mihomo 系拿到 YAML 配置（含 hysteria v1）。地址含访问密钥，只填自己的客户端，不要外传；不带密钥的老地址 `/sub` 返回 403。
 
 ## 自己打包
 

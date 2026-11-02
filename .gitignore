@@ -7,6 +7,9 @@ cache/
 # 本机配置：界面上手填的代理地址（每台电脑不一样，不入库）
 proxy.json
 
+# 本机订阅访问密钥（每台电脑不一样，不入库）
+sub.json
+
 # Python
 __pycache__/
 *.pyc

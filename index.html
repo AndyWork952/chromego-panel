@@ -66,36 +66,10 @@
   .panel h2 { font-size: 17px; margin-bottom: 12px }
   .desc { color: var(--muted); font-size: 13px; margin-bottom: 12px }
 
-  /* 左列工具列表 */
-  .cols { display: flex; gap: 24px; align-items: flex-start; margin-bottom: 26px }
-  .tools { width: 248px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px }
-  .tool {
-    border: 1px solid var(--line); border-radius: 14px;
-    padding: 13px 16px; cursor: pointer; transition: .2s;
-    background: rgba(255, 255, 255, .55);
-  }
-  .tool:hover { border-color: var(--accent) }
-  .tool.active { border-color: var(--accent); background: rgba(124, 58, 237, .07); box-shadow: 0 4px 16px rgba(124, 58, 237, .12) }
-  .t-head { display: flex; align-items: center; gap: 8px }
-  .t-name { font-weight: 700; font-size: 14px }
-  .t-sub { color: var(--muted); font-size: 12px }
   .pill { font-size: 11px; padding: 1px 10px; border-radius: 99px; font-weight: 600 }
   .pill.ok { color: var(--accent); border: 1px solid rgba(124, 58, 237, .3); background: rgba(124, 58, 237, .06) }
   .pill.mid { color: #b45309; border: 1px solid rgba(217, 119, 6, .35); background: rgba(251, 191, 36, .10) }
   .pill.no { color: var(--muted); border: 1px solid var(--line); background: rgba(255, 255, 255, .5) }
-  .t-local { margin-top: 5px; font-size: 12px; color: var(--muted); word-break: break-all }
-  .detail { flex: 1; min-width: 0 }
-
-  .slots { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 16px }
-  .slot-btn {
-    border: 1px solid rgba(124, 58, 237, .3); background: rgba(124, 58, 237, .05);
-    color: var(--accent); border-radius: 12px; padding: 7px 20px;
-    cursor: pointer; font-size: 13px; font-weight: 700; transition: .2s;
-  }
-  .slot-btn:hover { background: rgba(124, 58, 237, .12) }
-  .slot-btn.on { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; border: none }
-  .slot-btn.dup { opacity: .55 }
-  .dup-tag { font-size: 10px; font-weight: 600; margin-left: 4px; opacity: .8 }
 
   .agg-row { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap }
   #aggResult .agg-row:last-child { border-bottom: none }
@@ -120,34 +94,8 @@
   .btn2:disabled { filter: grayscale(.6); opacity: .6; cursor: not-allowed; transform: none }
 
   .src { font-size: 12px; color: var(--muted); margin: 4px 0 16px }
-  .chg-yes { color: var(--accent2); font-weight: 800 }
-  .chg-no { color: #16a34a; font-weight: 800 }
 
-  /* 对比区：在右侧详情面板内，随面板宽度展开 */
-  .diff { display: flex; gap: 44px; align-items: stretch; flex-wrap: wrap; margin-top: 14px }
-  .diff .box {
-    flex: 1 1 0; min-width: 300px; border-radius: 16px;
-    padding: 20px 22px 22px; font-size: 13.5px; border: 1px solid var(--line);
-    background: rgba(255, 255, 255, .6);
-  }
-  .nblock + .nblock { border-top: 1px dashed var(--line); margin-top: 16px; padding-top: 14px }
-  .ncap { font-size: 11px; font-weight: 800; color: var(--muted); margin-bottom: 6px; letter-spacing: .5px }
-  .box.old { border-top: 3px solid #f59e0b; background: rgba(251, 191, 36, .08) }
-  .box.new { border-top: 3px solid var(--accent); background: rgba(124, 58, 237, .05) }
-  .box .cap { font-weight: 800; font-size: 13px; margin-bottom: 12px; letter-spacing: .5px }
-  .box.old .cap { color: #b45309 }
-  .box.new .cap { color: var(--accent) }
-  .arrow { align-self: center; font-size: 24px; color: var(--accent); opacity: .55; flex-shrink: 0 }
-
-  table.kv { width: 100%; border-collapse: collapse; font-size: 13.5px }
-  table.kv td { padding: 6px 6px; border-bottom: 1px dashed var(--line); vertical-align: top }
-  table.kv td:first-child { color: var(--muted); width: 88px; white-space: nowrap }
-
-  .linktags { margin-top: 16px }
   .linkrow { display: flex; gap: 10px; align-items: center; margin-top: 8px }
-  .clients { margin-top: 18px; border-top: 1px dashed var(--line); padding-top: 12px; font-size: 12px; color: var(--muted) }
-  .clients .lab { display: block; margin-bottom: 8px; font-weight: 600 }
-  .clients .chips { display: flex; flex-wrap: wrap; gap: 6px }
   .client-chip { display: inline-block; background: rgba(124, 58, 237, .07); border: 1px solid rgba(124, 58, 237, .18); border-radius: 99px; padding: 2px 10px; color: var(--accent); font-weight: 600 }
   .client-chip.no { background: rgba(28, 25, 55, .05); border-color: var(--line); color: var(--muted) }
   .linkrow code {
@@ -158,13 +106,6 @@
   .copy { border: 1px solid rgba(124, 58, 237, .35); background: rgba(124, 58, 237, .08); color: var(--accent); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 700; flex-shrink: 0; transition: .2s }
   .copy:hover { background: rgba(124, 58, 237, .16) }
 
-  details.raw { margin-top: 14px }
-  details.raw summary { cursor: pointer; color: var(--muted); font-size: 13px }
-  pre.rawbox {
-    margin-top: 8px; background: rgba(124, 58, 237, .05); border: 1px solid var(--line);
-    border-radius: 12px; padding: 14px; font: 12px Consolas, "Courier New", monospace;
-    max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-all;
-  }
   .why {
     font-size: 14px; color: var(--muted);
     border-left: 3px solid rgba(124, 58, 237, .4);
@@ -180,10 +121,8 @@
   .tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none }
   .tog input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer }
   .tog.on { color: var(--text); font-weight: 600 }
-  .empty { color: var(--muted); text-align: center; padding: 70px 0 }  footer { border-top: 1px solid var(--line); padding: 28px 0; text-align: center; color: var(--muted); font-size: 13px }
+  footer { border-top: 1px solid var(--line); padding: 28px 0; text-align: center; color: var(--muted); font-size: 13px }
   @media (max-width: 720px) {
-    .cols { flex-direction: column }
-    .tools { width: 100% }
     .hero h1 { font-size: 28px }
   }
 </style>
@@ -199,24 +138,20 @@
   <div class="wrap">
     <div class="badge">⚡ 本地运行 · 数据不出你的电脑</div>
     <h1>ChromeGo <em>节点面板</em></h1>
-    <p>挑一个工具，点一下拉取，就能看到这次拿到什么、跟上次比变没变。能用的话复制链接，粘进 v2rayN 就能上。第一次打开也不用准备任何文件。</p>
+    <p>打开就能用：面板自己把各处免费节点拉好、去掉重复的，你只要把订阅地址粘进 v2rayN / Clash，客户端会自己挑能用的节点。</p>
   </div>
 </header>
 
 <main class="wrap">
-  <div id="warmTip" hidden style="background:rgba(124,58,237,.07); border:1px solid rgba(124,58,237,.2); border-radius:12px; padding:10px 16px; margin-bottom:14px; font-size:13px; color:var(--accent)">⏳ 第一次启动，正在后台把所有源先拉一遍，稍等一下：「内容重复」的标记和订阅数据马上就好…</div>
-  <div class="cols">
-    <div class="tools" id="toolList"></div>
-    <div class="detail panel" id="panel"><div class="empty">← 从左边挑一个工具开始</div></div>
-  </div>
-
+  <div id="warmTip" hidden style="background:rgba(124,58,237,.07); border:1px solid rgba(124,58,237,.2); border-radius:12px; padding:10px 16px; margin-bottom:14px; font-size:13px; color:var(--accent)">⏳ 第一次启动，正在后台把所有源先拉一遍，稍等一下，订阅数据马上就好…</div>
   <div class="panel" id="aggPanel">
     <h2>全部线路 · 已去重</h2>
     <p class="desc">把 4 个工具的所有源一次拉完，重复的自动去掉。订阅地址填一次就行（v2rayN：订阅 → 添加订阅），想取最新就在客户端点「更新订阅」：</p>
     <div class="linkrow">
-      <code id="subUrl">http://127.0.0.1:8765/sub</code>
-      <button class="copy" id="subCopy" data-copy="http://127.0.0.1:8765/sub">复制</button>
+      <code id="subUrl">（启动后自动生成，含访问密钥）</code>
+      <button class="copy" id="subCopy" data-copy="">复制</button>
     </div>
+    <p class="desc" style="margin:6px 0 0; color:#b91c1c">🔒 订阅地址里带访问密钥，只填到你自己的客户端里，<strong>不要发给别人</strong>——地址外传等于节点全泄；老地址 <code>/sub</code> 已停用</p>
     <div style="margin-top:16px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
       <button class="btn" id="aggBtn" onclick="doFetchAll()">🔄 一次拉全部（自动去重）</button>
       <span class="desc" style="margin:0" id="aggHint">拉完后，去客户端点一下「更新订阅」就能看到新节点</span>
@@ -245,15 +180,15 @@
     <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">先认识两个词</b> ——
       <strong>节点</strong>：一台帮你转发上网流量的服务器，翻墙软件连上它，你的流量就借它出去；
       <strong>订阅</strong>：一个网址，客户端（v2rayN / Clash）会按这个网址定期来取最新的节点列表，取一次更新一次。</p>
-    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">① ChromeGo 的源（左边的工具列表）</b> ——
-      ChromeGo 的作者把免费节点放在云端几个<strong>固定地址</strong>里，界面上叫「源1、源2」。
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">① ChromeGo 的源</b> ——
+      ChromeGo 的作者把免费节点放在云端几个<strong>固定地址</strong>里（结果里显示为「源1、源2」，就是原来 ip_1.bat、ip_2.bat 的编号）。
       可以把它们想成几个<strong>快递柜</strong>：柜子地址永远不变，但里面的包裹会换——
       节点用几天就被封了，作者就换一批新的塞进去，有时连「包裹种类」（协议）都整个换掉。
-      所以每次点「拉取」，你拿到的是<strong>这一刻柜子里的最新内容</strong>，跟昨天不一样很正常，别把某次拉到的链接当长期饭票，隔几天回来重拉一次更稳。
-      好消息是这些柜子地址在国内<strong>不用翻墙就能打开</strong>，所以左边的功能开不开代理都好用。</p>
+      所以每次点「一次拉全部」，你拿到的是<strong>这一刻柜子里的最新内容</strong>，跟昨天不一样很正常，别把某次拉到的链接当长期饭票，隔几天回来重拉一次更稳。
+      好消息是这些柜子地址在国内<strong>不用翻墙就能打开</strong>，所以这类拉取开不开代理都好用。</p>
     <p class="why"><b style="color:var(--text)">② 外部公共源（下面的「公共免费源」）</b> ——
       除了 ChromeGo，还有其他作者把四处收集的免费节点打包成订阅文件，放在 GitHub 上。
-      面板帮你把这些文件下载下来，只挑和左边四类对应的协议（vless/vmess/trojan/ss/hysteria/hysteria2），其他一律不要。
+      面板帮你把这些文件下载下来，只挑和 ChromeGo 四类对应的协议（vless/vmess/trojan/ss/hysteria/hysteria2），其他一律不要。
       两类节点的待遇不一样：<strong>TCP 系</strong>（vless/vmess/trojan/ss）会挨个真握手试连一遍——
       就像打电话看对方接不接——<strong>接不通的直接扔掉</strong>，留下来的按速度排队；
       <strong>hy1 / hy2</strong> 走的是 UDP，这套「打电话」对它们没用（打通了也不代表能用），所以不试直接收，
@@ -284,15 +219,15 @@
 
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let TOOLS = [], CUR = null, SLOT = 1, FETCHED = null, PANEL_DIR = '', SUB_URL = '';
+let SUB_URL = '';
 
 async function loadTools() {
   const r = await fetch('/api/tools');
   const d = await r.json();
-  TOOLS = d.tools; PANEL_DIR = d.panel_dir; SUB_URL = d.sub_url || SUB_URL;
+  SUB_URL = d.sub_url || SUB_URL;
   document.getElementById('subUrl').textContent = SUB_URL;
   document.getElementById('subCopy').dataset.copy = SUB_URL;
-  // 冷启动预热：后端正在后台拉全部槽位写缓存，完成后"同源N"标记才会出现
+  // 冷启动预热：后端正在后台拉全部槽位写缓存，完成后订阅才第一次有数据
   const warmEl = document.getElementById('warmTip');
   if (d.warming && !loadTools._polling) {
     warmEl.hidden = false;
@@ -300,48 +235,6 @@ async function loadTools() {
   } else if (!d.warming) {
     warmEl.hidden = true;
   }
-  const list = document.getElementById('toolList');
-  list.innerHTML = '';
-  TOOLS.forEach(t => {
-    const el = document.createElement('div');
-    el.className = 'tool' + (CUR === t.key ? ' active' : '');
-    const local = t.local ? `${esc(t.local.node.summary)}${t.local.count > 1 ? ` 等 ${t.local.count} 个节点` : ''}<br>${t.local.source} · ${t.local.mtime}` : '（本地还没有记录）';
-    el.innerHTML = `
-      <div class="t-head">
-        <span class="t-name">${t.label}</span>
-        <span class="pill ${({ok: 'ok', mid: 'mid'}[t.badge?.[1]] || 'no')}">${t.badge ? t.badge[0] : ''}</span>
-      </div>
-      <div class="t-sub">${t.sub}</div>
-      <div class="t-local">${local}</div>`;
-    el.onclick = () => { CUR = t.key; SLOT = 1; FETCHED = null; loadTools(); render(); };
-    list.appendChild(el);
-  });
-}
-
-function kv(node) {
-  if (!node) return '';
-  const rows = [
-    ['协议', node.protocol], ['地址', node.server], ['端口', node.port],
-    ['认证', node.auth || '—'], ['SNI', node.sni || '—'],
-    ['跳过证书', node.insecure === 1 ? '是 ⚠️' : (node.insecure === 0 ? '否' : '—')],
-  ];
-  return `<table class="kv">${rows.map(r => `<tr><td>${r[0]}</td><td>${esc(r[1] ?? '—')}</td></tr>`).join('')}</table>`;
-}
-
-function linksBox(node) {
-  if (!node || !node.links || !node.links.length) return '';
-  const ok = node.v2n;
-  const tag = ok
-    ? `<span class="pill ok" title="复制后可在 v2rayN 从剪贴板导入">v2rayN ✅</span>`
-    : `<span class="pill no" title="${esc(node.v2n_note || '不支持')}">v2rayN ❌</span>`;
-  const clients = (node.clients && node.clients.length)
-    ? `<div class="clients"><span class="lab">🧰 客户端支持</span><span class="chips">${node.clients.map(c =>
-        `<span class="client-chip ${c.ok ? '' : 'no'}">${c.name} ${c.ok ? '✅' : '❌'}</span>`).join('')}</span></div>` : '';
-  return `<div class="linktags">${tag}</div>` + node.links.map(l => `
-    <div class="linkrow">
-      <code>${esc(l.url)}</code>
-      <button class="copy" data-copy="${esc(l.url)}">复制</button>
-    </div>`).join('') + clients;
 }
 
 function copyTxt(btn, txt) {
@@ -355,23 +248,6 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-copy]');
   if (b) copyTxt(b, b.dataset.copy);
 });
-
-async function doFetch() {
-  const btn = document.getElementById('fetchBtn');
-  btn.disabled = true; btn.textContent = '正在拉取…';
-  try {
-    const r = await fetch('/api/fetch', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({tool: CUR, slot: SLOT})});
-    const d = await r.json();
-    if (d.error) { alert('没拉下来：' + d.error); return; }
-    FETCHED = d;
-    render();
-  } catch (e) {
-    alert('没拉下来：' + e);
-  } finally {
-    btn.disabled = false; btn.textContent = '⚡ 拉这个源看看';
-  }
-}
 
 async function doFetchAll() {
   const btn = document.getElementById('aggBtn');
@@ -400,61 +276,9 @@ async function doFetchAll() {
       <div class="src" style="margin-top:18px">去重后剩 ${d.unique.length} 条线路${d.errors.length ? ` · 有 ${d.errors.length} 个源没拉下来（${d.errors.join('、')}）` : ''}</div>
       ${rows}`;
     hint.textContent = '✅ 订阅已更新，去 v2rayN 点一下「更新订阅」就能看到全部线路';
-    loadTools();  // 刷新「内容重复」标记
   } finally {
     btn.disabled = false; btn.textContent = '🔄 一次拉全部（自动去重）';
   }
-}
-
-function nodeBlock(nd, i, total) {
-  const cap = total > 1 ? `<div class="ncap">节点 ${i + 1}</div>` : '';
-  return `<div class="nblock">${cap}${kv(nd)}${linksBox(nd)}</div>`;
-}
-
-function render() {
-  const panel = document.getElementById('panel');
-  const t = TOOLS.find(x => x.key === CUR);
-  if (!t) { panel.innerHTML = '<div class="empty">← 从左边挑一个工具开始</div>'; return; }
-
-  const slotsHtml = t.slots ? `
-    <div class="slots">
-      ${Array.from({length: t.slots}, (_, i) => {
-        const dup = t.slot_tags && t.slot_tags[i];
-        return `<button class="slot-btn ${SLOT === i+1 ? 'on' : ''} ${dup ? 'dup' : ''}"
-          title="${dup ? '跟源' + dup.replace('同源','') + '完全一样，拉下来也没区别' : '拉取源' + (i+1)}"
-          onclick="SLOT=${i+1};FETCHED=null;render()">源${i+1}${dup ? `<span class="dup-tag">${dup}</span>` : ''}</button>`;
-      }).join('')}
-    </div>` : '';
-
-  let body = '';
-  if (FETCHED) {
-    const nodes = FETCHED.nodes || [], oldNodes = FETCHED.old_nodes || [];
-    const changed = FETCHED.changed;
-    const src = FETCHED.source === 'gitlab' ? 'GitLab（主地址）' : '67867867.xyz（备用地址）';
-    const chg = changed === null ? '' :
-      (changed ? ' · 跟上次比 <span class="chg-yes">换了新节点</span>'
-               : ' · 跟上次 <span class="chg-no">一模一样，作者还没更新</span>');
-    const oldContent = oldNodes.length
-      ? oldNodes.map((nd, i) => nodeBlock(nd, i, oldNodes.length)).join('')
-      : `<div style="color:var(--muted); padding:18px 0; text-align:center">（还没有上次的记录<br>这次就是第一次 ↓）</div>`;
-    body = `
-      <h2>这次拉到什么（源${SLOT}）</h2>
-      <div class="src">来源：${src}${chg} · 这个源里共 <b>${nodes.length}</b> 个节点</div>
-      <div class="diff">
-        <div class="box old"><div class="cap">上次拉到${oldNodes.length > 1 ? `（${oldNodes.length} 个节点）` : ''}</div>${oldContent}</div>
-        <div class="arrow">→</div>
-        <div class="box new"><div class="cap">这次拉到${nodes.length > 1 ? `（${nodes.length} 个节点）` : ''}</div>${nodes.map((nd, i) => nodeBlock(nd, i, nodes.length)).join('')}</div>
-      </div>
-      <div class="hint-ok">✅ 复制链接，粘进 v2rayN 就能用。</div>
-      <details class="raw"><summary>看看原始配置（一般不用管）</summary><pre class="rawbox">${esc(FETCHED.raw||'')}</pre></details>`;
-  } else {
-    body = `
-      <h2>${t.label} · 选一个源</h2>
-      <p class="desc">源1、源2 就是原来 ip_1.bat、ip_2.bat 的编号。</p>
-      ${slotsHtml}
-      <button class="btn" id="fetchBtn" onclick="doFetch()">⚡ 拉这个源看看</button>`;
-  }
-  panel.innerHTML = body;
 }
 
 let _extWasRefreshing = false;
