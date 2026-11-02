@@ -54,7 +54,11 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/io" quay.io/pypa/manylinux2014_x86_64 bash -c '
             set -e
-            PY=$(ls /opt/python/cp312*/bin/python3 | head -1)
+            # 镜像自带的 Python 是静态 libpython，PyInstaller 跑不了；换 python-build-standalone
+            # 的构建（带共享库，且同样面向 glibc 2.17）
+            curl -fsSL -o /tmp/py.tgz "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz"
+            mkdir -p /py && tar -xzf /tmp/py.tgz -C /py
+            PY=/py/python/bin/python3
             $PY -m pip install pyyaml pyinstaller
             cd /io && $PY build.py
           '
