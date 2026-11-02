@@ -29,7 +29,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - { os: macos-13, arch: x64 }      # Intel
+          - { os: macos-15-intel, arch: x64 }  # Intel（macos-13 已退役，排队极慢）
           - { os: macos-14, arch: arm64 }    # Apple Silicon
     runs-on: ${{ matrix.os }}
     steps:
