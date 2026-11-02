@@ -38,10 +38,13 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install pyyaml pyinstaller
       - run: python build.py
+      # Release 资产不保留 Unix 可执行权限，直接传二进制用户下载下来是"文稿"打不开；
+      # 打成 zip 保留可执行位，解压即用
+      - run: cd dist && zip -9 ChromeGoPanel-macos-${{ matrix.arch }}.zip ChromeGoPanel-macos-${{ matrix.arch }}
       - uses: actions/upload-artifact@v4
         with:
           name: ChromeGoPanel-macos-${{ matrix.arch }}
-          path: dist/ChromeGoPanel-macos-${{ matrix.arch }}
+          path: dist/ChromeGoPanel-macos-${{ matrix.arch }}.zip
 
   linux:
     # 不能整个 job 跑在 manylinux 容器里：runner 的 node24 要求 glibc 2.28+，而

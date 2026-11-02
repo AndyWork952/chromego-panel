@@ -9,8 +9,8 @@
 | 平台 | 文件 | 说明 |
 |---|---|---|
 | Windows | `ChromeGoPanel-windows-x64.exe` | SmartScreen 首次提示"未知发布者"时点「更多信息 → 仍要运行」 |
-| macOS (Intel) | `ChromeGoPanel-macos-x64` | 首次被 Gatekeeper 拦时在终端执行 `xattr -d com.apple.quarantine ChromeGoPanel-macos-*` 再双击 |
-| macOS (Apple Silicon) | `ChromeGoPanel-macos-arm64` | 同上 |
+| macOS (Intel) | `ChromeGoPanel-macos-x64.zip` | 解压后双击使用；若提示"已损坏/无法验证"，终端执行 `xattr -d com.apple.quarantine ChromeGoPanel-macos-x64` 再双击 |
+| macOS (Apple Silicon) | `ChromeGoPanel-macos-arm64.zip` | 同上 |
 | Linux | `ChromeGoPanel-linux-x64` | `chmod +x` 后运行；CentOS 7+ / Ubuntu 18.04+ / Debian 10+ 通用 |
 
 `cache/`、`proxy.json` 等数据始终生成在程序文件旁边，升级时换个新文件即可，数据不丢。
