@@ -56,7 +56,7 @@ EXT_SOURCES = {
                       mirror="https://cdn.jsdelivr.net/gh/ALIILAPRO/v2rayNG-Config@main/sub.txt",
                       relay="https://wget.la/https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"),
 }
-EXT_KEEP_TCP = 120     # TCP 系（vmess/vless/trojan/ss）：真握手测活后跨源按延迟从低到高保留
+EXT_KEEP_TCP = 120     # TCP 系（vmess/vless/trojan/ss）：真握手测活后平权保留（延迟不参与排序，避免高延迟优质节点被挤掉）
 EXT_KEEP_HY1 = 20      # hysteria v1：QUIC 走 UDP 无法 TCP 握手测活，免检直收
 EXT_KEEP_HY2 = 60      # hysteria2：同上免检直收（用户实测移动宽带对 hy2 兼容最好）
 EXT_PROBE_LIMIT = 800  # 每源最多送测的 TCP 链接数，防超大源把刷新拖成几分钟
@@ -629,6 +629,14 @@ def _clash_proxy(url, name):
                  password=urllib.parse.unquote(u.username or ""), sni=q.get("sni", ""))
         if q.get("allowInsecure") == "1":
             p.update(ins)
+        # trojan 也可能走 ws：标准 type=ws&path=/&host= 或 ermaozi 私有 ws=1&wspath=/
+        ws = _link_ws(url)
+        if ws:
+            hhost, wpath = ws
+            p["network"] = "ws"
+            p["ws-opts"] = {"path": wpath or "/"}
+            if hhost:
+                p["ws-opts"]["headers"] = {"Host": hhost}
         return p
     if u.scheme == "ss":
         if u.username:  # 新格式：ss://base64(cipher:pass)@host:port
@@ -755,15 +763,19 @@ def _link_tls(link):
 
 
 def _link_ws(link):
-    """ws/httpupgrade 传输的 (HTTP Host, path)，用于 101 升级探测；非 ws 传输返回 None。"""
+    """ws/httpupgrade 传输的 (HTTP Host, path)，用于 101 升级探测；非 ws 传输返回 None。
+    认两种写法：标准 type=ws&path=/&host= 和 ermaozi 私有的 ws=1&wspath=/。"""
     scheme = link.partition("://")[0]
     if scheme == "vmess":
         d = _vmess_json(link) or {}
         return (d.get("host") or "", d.get("path") or "/") if d.get("net") in ("ws", "httpupgrade") else None
     try:
         q = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)
-        if (q.get("type") or ["tcp"])[0] in ("ws", "httpupgrade"):
+        t = (q.get("type") or ["tcp"])[0]
+        if t in ("ws", "httpupgrade"):
             return (q.get("host") or [""])[0], (q.get("path") or ["/"])[0]
+        if (q.get("ws") or [""])[0] == "1":  # ermaozi 私有写法
+            return (q.get("host") or [""])[0], (q.get("wspath") or ["/"])[0]
         return None
     except Exception:
         return None
@@ -857,9 +869,10 @@ def refresh_ext(key):
     tcp.sort(key=lambda l: l.startswith("vmess://"))
     with ThreadPoolExecutor(max_workers=60) as ex:
         results = list(ex.map(lambda l: (l, _probe_link(l)), tcp[:EXT_PROBE_LIMIT]))
-    alive = sorted((ms, url) for url, ms in results if ms is not None)
-    keep_tcp = [url for _, url in alive[:EXT_KEEP_TCP]]
-    ms_of = {url: round(ms) for ms, url in alive[:EXT_KEEP_TCP]}
+    # 测活只当「连通/不通」这道闸，不按延迟排名：延迟低≠好用（美国节点延迟高但带宽足，
+    # 若按延迟排序会被日本/香港的近节点挤掉）。只要连通就按源顺序平权保留，延迟仅作展示。
+    keep_tcp = [url for url, ms in results if ms is not None][:EXT_KEEP_TCP]
+    ms_of = {url: round(ms) for url, ms in results if ms is not None}
     keep = keep_tcp + hy1[:EXT_KEEP_HY1] + hy2[:EXT_KEEP_HY2]
     data = dict(fetched=datetime.now().strftime("%Y-%m-%d %H:%M"), source=source,
                 total=total, tcp=len(tcp), tcp_alive=len(keep_tcp),
@@ -892,10 +905,9 @@ def ext_alive():
             elif p[0] == "hysteria":
                 hy1.append((n["url"], n["name"], d.get("fetched", "")))
             else:
-                tcp.append((n.get("ms") or 99999, n["url"], n["name"], d.get("fetched", "")))
-    tcp.sort(key=lambda t: t[0])  # 各源各自排过序，这里跨源再统一排一次，截断才公平
-    return ([(u, n, f) for _, u, n, f in tcp[:EXT_KEEP_TCP]]
-            + hy1[:EXT_KEEP_HY1] + hy2[:EXT_KEEP_HY2])
+                tcp.append((n["url"], n["name"], d.get("fetched", "")))
+    # 跨源去重后平权保留（不再按延迟排序截断，延迟只作展示），避免远距离的高延迟优质节点被挤掉
+    return (tcp[:EXT_KEEP_TCP] + hy1[:EXT_KEEP_HY1] + hy2[:EXT_KEEP_HY2])
 
 
 def refresh_ext_all(background=True):

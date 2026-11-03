@@ -46,6 +46,18 @@ assert server._link_ws(v_ws) == ("h.com", "/p")
 assert server._link_ws("vless://u@1.2.3.4:443?type=tcp#x") is None
 assert server._probe_link("vmess://!!!") is None  # 解析不了直接判死，不抛异常
 
+# trojan 走 ws 的两种写法（标准 / ermaozi 私有）都要能识别并转成 mihomo 的 ws 配置
+tj_ws_std = "trojan://pw@1.2.3.4:443?sni=s.com&type=ws&host=h.com&path=%2Fp#a"
+tj_ws_erm = "trojan://pw@1.2.3.4:443?allowInsecure=1&sni=s.com&ws=1&wspath=%2F#b"
+assert server._link_ws(tj_ws_std) == ("h.com", "/p")
+assert server._link_ws(tj_ws_erm) == ("", "/")
+p1 = server._clash_proxy(tj_ws_std, "a")
+p2 = server._clash_proxy(tj_ws_erm, "b")
+assert p1["network"] == "ws" and p1["ws-opts"] == {"path": "/p", "headers": {"Host": "h.com"}}
+assert p2["network"] == "ws" and p2["ws-opts"] == {"path": "/"} and p2["skip-cert-verify"] is True
+p3 = server._clash_proxy("trojan://pw@1.2.3.4:443?sni=s.com#c", "c")
+assert "network" not in p3  # 纯 trojan 不该多出 ws 字段
+
 # 外部源多协议收录（缓存目录换成临时目录，不碰真实数据）
 server.CACHE_DIR = pathlib.Path(tempfile.mkdtemp())
 server.EXT_SOURCES = {"demo": dict(label="demo")}
@@ -66,12 +78,12 @@ tuic = "tuic://uuid:pw@6.6.6.6:443#bad"
                                                  dict(url=tuic, name="bad", ms=None)])))
 urls = [u for u, _, _ in server.ext_alive()]
 assert tuic not in urls and h2b in urls and tj in urls  # tuic 不收，其余全留
-assert urls.index(tj) < urls.index(v) < urls.index(h1) < urls.index(h2)  # TCP 系按延迟排（vmess 无 ms 排最后）
+assert urls.index(v) < urls.index(tj) < urls.index(h1) < urls.index(h2)  # TCP 系平权按缓存顺序，延迟不参与排序
 
 # 分协议限量：TCP 系按 EXT_KEEP_TCP，hy1 按 EXT_KEEP_HY1，hy2 按 EXT_KEEP_HY2
 server.EXT_KEEP_TCP, server.EXT_KEEP_HY1, server.EXT_KEEP_HY2 = 1, 0, 1
 urls = [u for u, _, _ in server.ext_alive()]
-assert set(urls) == {tj, h2}  # tcp 桶按延迟截到 1 个（trojan 50ms 优先于无 ms 的 vmess）、hy1 清零、hy2 截到 1 个
+assert set(urls) == {v, h2}  # tcp 桶平权截到 1 个（按缓存顺序第一个是 vmess）、hy1 清零、hy2 截到 1 个
 server.EXT_KEEP_TCP, server.EXT_KEEP_HY1, server.EXT_KEEP_HY2 = 40, 20, 60
 
 # 两种订阅格式（外部源 6 条，其中 hy1 只进 Clash 不进 v2rayN）

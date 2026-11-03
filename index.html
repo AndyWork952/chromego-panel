@@ -178,38 +178,24 @@
   <div class="panel">
     <h2>它是怎么运作的</h2>
     <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">先认识两个词</b> ——
-      <strong>节点</strong>：一台帮你转发上网流量的服务器，翻墙软件连上它，你的流量就借它出去；
-      <strong>订阅</strong>：一个网址，客户端（v2rayN / Clash）会按这个网址定期来取最新的节点列表，取一次更新一次。</p>
+      <strong>节点</strong>：帮你转发流量的服务器；<strong>订阅</strong>：一个网址，客户端（v2rayN / Clash）定期来这取最新节点列表。</p>
     <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">① ChromeGo 的源</b> ——
-      ChromeGo 的作者把免费节点放在云端几个<strong>固定地址</strong>里（结果里显示为「源1、源2」，就是原来 ip_1.bat、ip_2.bat 的编号）。
-      可以把它们想成几个<strong>快递柜</strong>：柜子地址永远不变，但里面的包裹会换——
-      节点用几天就被封了，作者就换一批新的塞进去，有时连「包裹种类」（协议）都整个换掉。
-      所以每次点「一次拉全部」，你拿到的是<strong>这一刻柜子里的最新内容</strong>，跟昨天不一样很正常，别把某次拉到的链接当长期饭票，隔几天回来重拉一次更稳。
-      好消息是这些柜子地址在国内<strong>不用翻墙就能打开</strong>，所以这类拉取开不开代理都好用。</p>
-    <p class="why"><b style="color:var(--text)">② 外部公共源（下面的「公共免费源」）</b> ——
-      除了 ChromeGo，还有其他作者把四处收集的免费节点打包成订阅文件，放在 GitHub 上。
-      面板帮你把这些文件下载下来，只挑和 ChromeGo 四类对应的协议（vless/vmess/trojan/ss/hysteria/hysteria2），其他一律不要。
-      两类节点的待遇不一样：<strong>TCP 系</strong>（vless/vmess/trojan/ss）会挨个真握手试连一遍——
-      就像打电话看对方接不接——<strong>接不通的直接扔掉</strong>，留下来的按速度排队；
-      <strong>hy1 / hy2</strong> 走的是 UDP，这套「打电话」对它们没用（打通了也不代表能用），所以不试直接收，
-      死活交给客户端的「自动选择」组自己挑。
-      麻烦在于 GitHub 在国内<strong>直连打不开</strong>，所以有两条路：
-      你在上面「代理地址」框里填了代理，就走你的代理去拿；没填，面板就借一个国内的「搬运站」（镜像）替你拿，慢一点但也能拿到。
-      这些源<strong>不会自己更新</strong>——你点一次「立即更新」，面板才去拿一次（四个源同时开工，TCP 节点要挨个试连，通常一分多钟）。</p>
+      作者把免费节点放在云端几个<strong>固定地址</strong>（显示为「源1、源2」）。当它们是<strong>快递柜</strong>：柜子地址不变，里面包裹会换——节点被封了就换一批新的，有时连协议都换。
+      所以每次拉到的都是「这一刻柜子里的货」，隔几天回来重拉才稳。这些柜子国内<strong>不用翻墙就能开</strong>，拉取不依赖代理。</p>
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">② 外部公共源（下面的「公共免费源」）</b> ——
+      别的作者把免费节点打包放在 GitHub 上，面板拉下来、只挑对应的协议。TCP 系节点会<strong>挨个试连、连不通的扔掉</strong>（像打电话看接不接）；hy1/hy2 走 UDP 试连无效，直接收、交给客户端「自动选择」挑。
+      GitHub 国内直连打不开：填了「代理地址」就走代理，没填就借国内「搬运站」（镜像）拿。这些源<strong>不自动更新</strong>，点「立即更新」才拿一次。</p>
     <p class="why" style="margin-top:10px"><b style="color:var(--text)">③ 开代理软件 ≠ 开系统代理</b> ——
-      这俩是两件独立的事，很多人容易混。
-      <strong>打开代理软件</strong>（v2rayN / Clash）：相当于在你电脑里开了一个「中转站」窗口（比如 127.0.0.1:10808），谁把上网请求递给它，它就帮你转出去。
-      <strong>打开系统代理</strong>：只是在 Windows 里贴了张<strong>告示</strong>——「上外网请走那个中转站」——它自己不开门不干活，只给"会来看告示的程序"（主要是浏览器）指路。
-      所以会出现这种状态：软件开着、系统代理关着 → 浏览器没看告示、在直连（网页上不去外网），但面板这种<strong>自己知道地址</strong>的程序，照样能把请求递进中转站。
-      面板从不看系统代理那张告示，只认你填的「代理地址」——能不能借道出去，就看两件事：中转站开着没、节点是不是真的通。</p>
+      <strong>开软件</strong> = 开了一个「中转站」（如 127.0.0.1:10808）；<strong>开系统代理</strong> = 在 Windows 贴张「告示」，告诉浏览器该走哪个中转站，它自己不干活。
+      所以「软件开着、系统代理关着」时，浏览器直连、上不去外网，但面板这种<strong>自己知道地址</strong>的程序照样能递进中转站——面板只认你填的「代理地址」，不看那张告示。</p>
   </div>
 
   <div class="panel">
     <h2>博主推荐</h2>
-    <p class="why" style="margin-bottom:10px">博主本机（移动宽带）用下来的时段规律，供参考——你的网络不一样，体感可能就不同：</p>
-    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">☀️ 白天</b> —— 优先用 <strong>hysteria v1</strong> 和 <strong>VLESS（XHTTP + REALITY）</strong> 的节点，白天这两类最稳，速度也在线。</p>
-    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">🌙 晚上</b> —— 换 <strong>hysteria2</strong> 的节点更顺。</p>
-    <p class="why">懒得手动切就交给客户端的「自动选择」，它会自己挑当下能用的；要是怎么切都不顺，先回面板点一次「立即更新」——大概率是节点过期了，不是你的问题。</p>
+    <p class="why" style="margin-bottom:10px">博主用下来的体会，供参考——好节点靠的是「线路」，不是协议，也不是时段：</p>
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">认线路，别认协议</b> —— 好用的往往是一批稳定节点（比如同一家机场的服务器）。碰到顺手的，记下它的名字或「家族」，下次直接找它，不用管它跑的是 trojan、hysteria 还是别的。</p>
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">延迟只作参考</b> —— 延迟低 ≠ 好用。美国节点延迟高、但带宽足，照样比很多低延迟节点跑得爽；真正决定体验的是这条线路稳不稳、快不快。</p>
+    <p class="why">感觉不好使了，先回面板点一次「立即更新」——免费节点寿命短，多半是过期了，不是协议、时段或你网络的问题。懒得手动挑，就交给客户端的「自动选择」。</p>
   </div>
 </main>
 
