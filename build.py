@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """一键打包脚本：python build.py
-在哪个平台上跑就出哪个平台的单文件可执行程序（Windows -> dist/ChromeGoPanel.exe，
-macOS/Linux -> dist/ChromeGoPanel）。产物绑平台和 glibc，跨平台发布请用
+在哪个平台上跑就出哪个平台的单文件可执行程序（Windows -> dist/FreeProxyPanel.exe，
+macOS/Linux -> dist/FreeProxyPanel）。产物绑平台和 glibc，跨平台发布请用
 .github/workflows/build.yml（Linux 在 manylinux2014 容器里构建，兼容 CentOS 7+）。
 """
 import platform
@@ -31,7 +31,7 @@ cmd = [
     sys.executable, "-m", "PyInstaller",
     "--onefile",            # 单文件，双击即用
     "--clean", "--noconfirm",
-    "--name", "ChromeGoPanel",
+    "--name", "FreeProxyPanel",
     # index.html 打进可执行文件；cache/、proxy.json 运行时落在 exe 旁边（见 server.py 的 ASSET_DIR/PANEL_DIR）
     "--add-data", f"index.html{sep}.",
     "--exclude-module", "selftest",   # 自检脚本不进产物
@@ -43,7 +43,7 @@ subprocess.run(cmd, check=True, cwd=ROOT)
 ext = ".exe" if platform.system() == "Windows" else ""
 # macOS 上 platform.system() 是 "Darwin"，统一叫 macos，和 CI 上传路径 / README 的文件名一致
 system = {"Darwin": "macos"}.get(platform.system(), platform.system().lower())
-out = ROOT / "dist" / f"ChromeGoPanel{ext}"
-final = ROOT / "dist" / f"ChromeGoPanel-{system}-{arch}{ext}"
+out = ROOT / "dist" / f"FreeProxyPanel{ext}"
+final = ROOT / "dist" / f"FreeProxyPanel-{system}-{arch}{ext}"
 out.replace(final)
 print(f"\n打包完成 -> {final}")

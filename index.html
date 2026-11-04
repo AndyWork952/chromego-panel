@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ChromeGo 节点面板</title>
+<title>FreeProxy 节点面板</title>
 <style>
   :root {
     --bg: #f4f4f8;
@@ -63,8 +63,12 @@
     box-shadow: var(--shadow);
     margin-bottom: 22px;
   }
-  .panel h2 { font-size: 17px; margin-bottom: 12px }
+  .panel h2 { font-size: 17px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap }
   .desc { color: var(--muted); font-size: 13px; margin-bottom: 12px }
+  .cat-tag { font-size: 11px; font-weight: 800; padding: 2px 12px; border-radius: 99px; letter-spacing: .5px }
+  .cat-cg   { color: #7c3aed; border: 1px solid rgba(124, 58, 237, .3);  background: rgba(124, 58, 237, .07) }
+  .cat-ext  { color: #0369a1; border: 1px solid rgba(2, 132, 199, .3);   background: rgba(2, 132, 199, .07) }
+  .panel.soon { border-style: dashed; background: rgba(255, 255, 255, .45); box-shadow: none }
 
   .pill { font-size: 11px; padding: 1px 10px; border-radius: 99px; font-weight: 600 }
   .pill.ok { color: var(--accent); border: 1px solid rgba(124, 58, 237, .3); background: rgba(124, 58, 237, .06) }
@@ -130,49 +134,56 @@
 <body>
 <nav>
   <div class="wrap nav-in">
-    <div class="logo">ChromeGo<span> · 节点面板</span></div>
+    <div class="logo">FreeProxy<span> · 节点面板</span></div>
   </div>
 </nav>
 
 <header class="hero">
   <div class="wrap">
     <div class="badge">⚡ 本地运行 · 数据不出你的电脑</div>
-    <h1>ChromeGo <em>节点面板</em></h1>
-    <p>打开就能用：面板自己把各处免费节点拉好、去掉重复的，你只要把订阅地址粘进 v2rayN / Clash，客户端会自己挑能用的节点。</p>
+    <h1>FreeProxy <em>节点面板</em></h1>
+    <p>打开就能用：面板把两类来源（ChromeGo 节点池 · 外部公共源）的免费节点拉好、去掉重复的，你只要把订阅地址粘进 v2rayN / Clash，客户端会自己挑能用的节点。</p>
   </div>
 </header>
 
 <main class="wrap">
   <div id="warmTip" hidden style="background:rgba(124,58,237,.07); border:1px solid rgba(124,58,237,.2); border-radius:12px; padding:10px 16px; margin-bottom:14px; font-size:13px; color:var(--accent)">⏳ 第一次启动，正在后台把所有源先拉一遍，稍等一下，订阅数据马上就好…</div>
-  <div class="panel" id="aggPanel">
-    <h2>全部线路 · 已去重</h2>
-    <p class="desc">把 4 个工具的所有源一次拉完，重复的自动去掉。订阅地址填一次就行（v2rayN：订阅 → 添加订阅），想取最新就在客户端点「更新订阅」：</p>
+  <div class="panel" id="subPanel">
+    <h2>📮 订阅地址 · 全部来源合并去重</h2>
+    <p class="desc">来源一、来源二的节点统一合进这一个订阅地址，重复的自动去掉。客户端填一次就行（v2rayN：订阅 → 添加订阅），想取最新就在客户端点「更新订阅」：</p>
     <div class="linkrow">
       <code id="subUrl">（启动后自动生成，含访问密钥）</code>
       <button class="copy" id="subCopy" data-copy="">复制</button>
     </div>
     <p class="desc" style="margin:6px 0 0; color:#b91c1c">🔒 订阅地址里带访问密钥，只填到你自己的客户端里，<strong>不要发给别人</strong>——地址外传等于节点全泄；老地址 <code>/sub</code> 已停用</p>
-    <div style="margin-top:16px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+  </div>
+
+  <div class="panel" id="cgPanel">
+    <h2><span class="cat-tag cat-cg">来源一</span>ChromeGo 节点池</h2>
+    <p class="desc">ChromeGo 云端固定地址的各工具槽位（源1 ~ 源N），像「快递柜」：柜子地址不变、里面包裹会换，隔几天重拉一次更稳。国内直连就能拉，不依赖代理。</p>
+    <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
       <button class="btn" id="aggBtn" onclick="doFetchAll()">🔄 一次拉全部（自动去重）</button>
       <span class="desc" style="margin:0" id="aggHint">拉完后，去客户端点一下「更新订阅」就能看到新节点</span>
     </div>
     <div id="aggResult"></div>
-    <div style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px">
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
-        <span class="desc" style="margin:0; font-weight:700">🌐 公共免费源</span>
-        <span style="display:flex; align-items:center; gap:8px; flex:1; min-width:300px; max-width:520px">
-          <span class="desc" style="margin:0; white-space:nowrap">代理地址</span>
-          <input id="proxyInput" placeholder="留空 = 直连 + 镜像；填代理如 http://127.0.0.1:7890"
-                 title="填了就只走这个代理，连不通自动落到直连 + 镜像；留空直接走直连 + 镜像"
-                 style="flex:1; width:100%; min-width:0; padding:7px 12px; border:1px solid var(--line); border-radius:9px; font:inherit; font-size:13px; color:var(--text); background:var(--card)"
-                 onchange="doSaveProxy(this)">
-        </span>
-        <button class="btn" id="extBtn" onclick="doExtRefresh()">🌐 立即更新</button>
-      </div>
-      <div class="desc" id="extInfo" style="margin:8px 0 0; display:block">加载中…</div>
-      <div class="src" id="extRows" style="margin-top:4px"></div>
-      <div class="hint-ok" id="extDone" hidden style="margin-top:10px"></div>
+  </div>
+
+  <div class="panel" id="extPanel">
+    <h2><span class="cat-tag cat-ext">来源二</span>外部公共源</h2>
+    <p class="desc">ermaozi / cbusifabcap / LeilaoMi / ALIILAPRO 四个公共免费源：<strong>完全手动更新</strong>，点「立即更新」才拉（四源并行下载并测活，约一分多钟）。GitHub 国内直连打不开——填了代理就走代理，没填就借国内镜像拿。</p>
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+      <span style="display:flex; align-items:center; gap:8px; flex:1; min-width:300px; max-width:520px">
+        <span class="desc" style="margin:0; white-space:nowrap">代理地址</span>
+        <input id="proxyInput" placeholder="留空 = 直连 + 镜像；填代理如 http://127.0.0.1:7890"
+               title="填了就只走这个代理，连不通自动落到直连 + 镜像；留空直接走直连 + 镜像"
+               style="flex:1; width:100%; min-width:0; padding:7px 12px; border:1px solid var(--line); border-radius:9px; font:inherit; font-size:13px; color:var(--text); background:var(--card)"
+               onchange="doSaveProxy(this)">
+      </span>
+      <button class="btn" id="extBtn" onclick="doExtRefresh()">🌐 立即更新</button>
     </div>
+    <div class="desc" id="extInfo" style="margin:8px 0 0; display:block">加载中…</div>
+    <div class="src" id="extRows" style="margin-top:4px"></div>
+    <div class="hint-ok" id="extDone" hidden style="margin-top:10px"></div>
   </div>
 
   <div class="panel">
@@ -182,7 +193,7 @@
     <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">① ChromeGo 的源</b> ——
       作者把免费节点放在云端几个<strong>固定地址</strong>（显示为「源1、源2」）。当它们是<strong>快递柜</strong>：柜子地址不变，里面包裹会换——节点被封了就换一批新的，有时连协议都换。
       所以每次拉到的都是「这一刻柜子里的货」，隔几天回来重拉才稳。这些柜子国内<strong>不用翻墙就能开</strong>，拉取不依赖代理。</p>
-    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">② 外部公共源（下面的「公共免费源」）</b> ——
+    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">② 外部公共源（「来源二」面板）</b> ——
       别的作者把免费节点打包放在 GitHub 上，面板拉下来、只挑对应的协议。TCP 系节点会<strong>挨个试连、连不通的扔掉</strong>（像打电话看接不接）；hy1/hy2 走 UDP 试连无效，直接收、交给客户端「自动选择」挑。
       GitHub 国内直连打不开：填了「代理地址」就走代理，没填就借国内「搬运站」（镜像）拿。这些源<strong>不自动更新</strong>，点「立即更新」才拿一次。</p>
     <p class="why" style="margin-top:10px"><b style="color:var(--text)">③ 开代理软件 ≠ 开系统代理</b> ——

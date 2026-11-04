@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ChromeGo 节点面板 — 本地 Web 工具
+FreeProxy 节点面板 — 本地 Web 工具
 拉取免费节点池的槽位配置 -> 新旧对比 -> 生成 v2rayN 可导入的分享链接
   cache/  每个槽位最近一次拉取的原始配置（用于新旧对比）
 启动：python server.py  ->  http://127.0.0.1:8765
@@ -55,6 +55,17 @@ EXT_SOURCES = {
                       url="https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
                       mirror="https://cdn.jsdelivr.net/gh/ALIILAPRO/v2rayNG-Config@main/sub.txt",
                       relay="https://wget.la/https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"),
+    # 聚合器大池：ss/trojan/vmess 为主，正好补现有源的 hysteria 系（2026-11-04 实测 3037 链接，
+    # 去重后 3022，协议分布 ss 887 / vmess 1424 / trojan 726）。每源 800 条测活上限会自动截住大池
+    "mahdibland": dict(label="V2RayAggregator",
+                       url="https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt",
+                       mirror="https://cdn.jsdelivr.net/gh/mahdibland/V2RayAggregator@master/sub/sub_merge.txt",
+                       relay="https://wget.la/https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt"),
+    # 每日更新大池，与 mahdibland 同类聚合池（2026-11-04 实测存活）
+    "barryfar":  dict(label="barry-far",
+                      url="https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt",
+                      mirror="https://cdn.jsdelivr.net/gh/barry-far/V2ray-Config@main/All_Configs_Sub.txt",
+                      relay="https://wget.la/https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt"),
 }
 EXT_KEEP_TCP = 120     # TCP 系（vmess/vless/trojan/ss）：真握手测活后平权保留（延迟不参与排序，避免高延迟优质节点被挤掉）
 EXT_KEEP_HY1 = 20      # hysteria v1：QUIC 走 UDP 无法 TCP 握手测活，免检直收
@@ -179,7 +190,7 @@ def open_url(url, timeout=25, headers=None):
     """统一的出网入口：探到本机代理就走代理，没探到就直连（忽略环境里可能存在的无关代理）。
     代理中途坏了（进程退出或节点挂了）不能空手而归：清缓存重探一次，还不行就退到纯直连——
     GitHub 类站点直连必被掐，但 wget.la 镜像直连是通的，这条退路得留着。"""
-    hdrs = {"User-Agent": "Mozilla/5.0 ChromeGoPanel"}
+    hdrs = {"User-Agent": "Mozilla/5.0 FreeProxyPanel"}
     hdrs.update(headers or {})
     proxy = detect_proxy()
     try:
@@ -714,12 +725,12 @@ def build_sub_clash():
     return yaml.dump({
         "proxies": proxies,
         "proxy-groups": [
-            {"name": "🚀 节点选择", "type": "select", "proxies": ["♻️ 自动选择"] + names},
-            {"name": "♻️ 自动选择", "type": "url-test", "proxies": list(names),
+            {"name": "freeproxy-panel", "type": "select", "proxies": ["自动选择"] + names},
+            {"name": "自动选择", "type": "url-test", "proxies": list(names),
              "url": "http://www.gstatic.com/generate_204", "interval": 120,
              "tolerance": 100, "lazy": True, "max-fails": 3},
         ],
-        "rules": ["MATCH,🚀 节点选择"],
+        "rules": ["MATCH,freeproxy-panel"],
     }, allow_unicode=True, sort_keys=False)
 
 
@@ -1022,7 +1033,7 @@ class Handler(BaseHTTPRequestHandler):
             # 客户端「更新订阅」失败时用户能看懂去面板复制新地址
             given = self.path[5:].rstrip("/")
             if given != SUB_TOKEN:
-                self._send("订阅地址无效：请打开 ChromeGo 面板，复制上面展示的订阅地址（老地址已停用）".encode("utf-8"),
+                self._send("订阅地址无效：请打开 FreeProxy 面板，复制上面展示的订阅地址（老地址已停用）".encode("utf-8"),
                            "text/plain; charset=utf-8", 403)
                 return
             ua = self.headers.get("User-Agent", "").lower()
@@ -1076,7 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     global WARMING
     url = f"http://127.0.0.1:{PORT}"
-    print(f"ChromeGo 节点面板  ->  {url}")
+    print(f"FreeProxy 节点面板  ->  {url}")
     print(f"面板目录          ->  {PANEL_DIR}")
     print(f"配置缓存          ->  {CACHE_DIR}")
     print("关闭这个窗口即退出面板")
