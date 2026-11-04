@@ -170,7 +170,7 @@
 
   <div class="panel" id="extPanel">
     <h2><span class="cat-tag cat-ext">来源二</span>外部公共源</h2>
-    <p class="desc">ermaozi / cbusifabcap / LeilaoMi / ALIILAPRO 四个公共免费源：<strong>完全手动更新</strong>，点「立即更新」才拉（四源并行下载并测活，约一分多钟）。GitHub 国内直连打不开——填了代理就走代理，没填就借国内镜像拿。</p>
+    <p class="desc">ermaozi / cbusifabcap / LeilaoMi / ALIILAPRO / V2RayAggregator / barry-far 六个公共免费源：<strong>完全手动更新</strong>，点「立即更新」才拉（六源并行下载并测活，约两分钟）。GitHub 国内直连打不开——填了代理就走代理，没填就借国内镜像拿。</p>
     <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
       <span style="display:flex; align-items:center; gap:8px; flex:1; min-width:300px; max-width:520px">
         <span class="desc" style="margin:0; white-space:nowrap">代理地址</span>
@@ -304,7 +304,7 @@ async function loadExt() {
       }
       const net = d.proxy ? `走你填的代理（${esc(d.proxy.replace('http://', ''))}）`
                           : (d.proxy_checked ? '没填代理，走直连 + 镜像' : '正在看网络情况…');
-      document.getElementById('extInfo').textContent = `收 6 种协议 · TCP 系测活后最多 ${d.keep_tcp} 条 · hy1 免检最多 ${d.keep_hy1} 条 · hy2 免检最多 ${d.keep_hy2} 条 · ${net}`;
+      document.getElementById('extInfo').textContent = `收 6 种协议 · TCP 系测活通过全收 · hy1 免检最多 ${d.keep_hy1} 条 · hy2 免检最多 ${d.keep_hy2} 条 · ${net}`;
     }
     const pi = document.getElementById('proxyInput');
     if (pi !== document.activeElement)  // 正在打字时别覆盖输入框

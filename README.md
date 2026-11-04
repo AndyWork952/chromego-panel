@@ -22,7 +22,7 @@ pip install -r requirements.txt
 python server.py
 ```
 
-打开 http://127.0.0.1:8765 ，订阅地址在面板「全部线路 · 已去重」区展示（形如 `http://127.0.0.1:8765/sub/<随机密钥>`），按客户端 User-Agent 自动分流格式：v2rayN 拿到 base64 分享链接列表，Clash Verge / mihomo 系拿到 YAML 配置（含 hysteria v1）。地址含访问密钥，只填自己的客户端，不要外传；不带密钥的老地址 `/sub` 返回 403。
+打开 http://127.0.0.1:8765 ，订阅地址在面板「订阅地址 · 全部来源合并去重」区展示（形如 `http://127.0.0.1:8765/sub/<随机密钥>`），按客户端 User-Agent 自动分流格式：v2rayN 拿到 base64 分享链接列表，Clash Verge / mihomo 系拿到 YAML 配置（含 hysteria v1）。地址含访问密钥，只填自己的客户端，不要外传；不带密钥的老地址 `/sub` 返回 403。
 
 ## 自己打包
 
@@ -35,7 +35,7 @@ python server.py
 ## 说明
 
 - 启动时后台预热槽位缓存（`cache/` 是运行时产物，不入库）。云端每个「源N」是固定地址，内容由作者不定期整批覆盖，拉到的永远是当下最新配置，隔几天重拉一次更稳
-- **外部公共源**（ermaozi / cbusifabcap / LeilaoMi真测 / ALIILAPRO / V2RayAggregator / barry-far，共六源）：**完全手动更新**，点面板「立即更新」才拉（六源并行下载并测活，总耗时约等于最慢的一个源，通常两三分钟）。**只收录与面板四个槽位类型对应的协议**：vmess / vless / trojan / ss 走 TCP，逐个真握手测活（TLS 节点要完成 SSL 握手，ws 节点还要求 101 升级成功），每源最多送测 800 条，跨源去重后测活通过的平权保留最多 120 条（延迟只作展示、不参与排序，避免高延迟的优质线路被挤掉）；hysteria / hysteria2 走 UDP 无法 TCP 握手测活，免检直收（hy1 最多 20、hy2 最多 60），死活交给客户端的「自动选择」组。跨源去重后进订阅。某个源拉取失败会在面板标红原因，订阅继续用上次的节点。源是 2026-10-31 / 11-04 逐个实测筛选的：ermaozi 每日更新约 28 个 hy2；cbusifabcap 每天 4~6 次更新、130+ 独立 hy2（hy2 主力）；LeilaoMi 每 6 小时用 sing-box 真连接测试 + 国内探针验证（量少但质量高）；ALIILAPRO 每日更新的 2501 节点与前三源仅重合 8 个、TCP 存活率 18.8% 为各源最高（TCP 主力）；V2RayAggregator 聚合器大池 4300+ 条（ss/vmess/trojan 为主，补 ss 系）；barry-far 3400+ 条（vless 2400+ 补 vless/REALITY）。Pawdroid 已萎缩到 11 个节点（6 个重合）不再收录。免费节点寿命普遍只有几小时，隔了一夜缓存里的大半已死——**感觉不好使时先点一次「立即更新」再判断**，别急着怪时段或协议
+- **外部公共源**（ermaozi / cbusifabcap / LeilaoMi真测 / ALIILAPRO / V2RayAggregator / barry-far，共六源）：**完全手动更新**，点面板「立即更新」才拉（六源并行下载并测活，总耗时约等于最慢的一个源，通常两三分钟）。**只收录与面板四个槽位类型对应的协议**：vmess / vless / trojan / ss 走 TCP，逐个真握手测活（TLS 节点要完成 SSL 握手，ws 节点还要求 101 升级成功），每源最多送测 800 条，测活通过的**全收、不限量**（截断等于抽签——好节点在源文件里的排序每天变，任何上限都会随机杀掉优质线路；延迟只作展示、不参与排序）；hysteria / hysteria2 走 UDP 无法 TCP 握手测活，免检直收（hy1 最多 20、hy2 最多 60），死活交给客户端的「自动选择」组。跨源去重后进订阅。某个源拉取失败会在面板标红原因，订阅继续用上次的节点。源是 2026-10-31 / 11-04 逐个实测筛选的：ermaozi 每日更新约 28 个 hy2；cbusifabcap 每天 4~6 次更新、130+ 独立 hy2（hy2 主力）；LeilaoMi 每 6 小时用 sing-box 真连接测试 + 国内探针验证（量少但质量高）；ALIILAPRO 每日更新的 2501 节点与前三源仅重合 8 个、TCP 存活率 18.8% 为各源最高（TCP 主力）；V2RayAggregator 聚合器大池 4300+ 条（ss/vmess/trojan 为主，补 ss 系）；barry-far 3400+ 条（vless 2400+ 补 vless/REALITY）。Pawdroid 已萎缩到 11 个节点（6 个重合）不再收录。免费节点寿命普遍只有几小时，隔了一夜缓存里的大半已死——**感觉不好使时先点一次「立即更新」再判断**，别急着怪时段或协议
 - **外部源三条拉取链路**：GitHub raw → jsDelivr → wget.la 国内反代镜像，逐条尝试。前两条国内直连不通，第三条不开代理也能拉
 - **代理只在面板「代理地址」框配置**（存 `proxy.json`，不入库）：填了就只走它（用前真连验证一次，代理进程活着但节点挂了会被识破），失败自动落到直连 + 镜像；留空不做任何代理尝试。只认 HTTP 代理（v2rayN 10808、Clash 7890 都是混合端口，直接填）
 - **开代理软件 ≠ 开系统代理**：打开代理软件是在本机开一个代理端口（如 127.0.0.1:10808），等请求主动送进来；「系统代理」开关只是改 Windows 的一条全局设置，给浏览器这类"会来读设置"的程序看。面板不读系统代理设置，只认上面填的地址——决定能不能借道的只有两件事：端口活着、节点真能通
@@ -63,3 +63,5 @@ python server.py
 - **[cbusifabcap/daily_free_vpn](https://github.com/cbusifabcap/daily_free_vpn)** —— 外部公共源之一，每天多次更新，hy2 节点量最大
 - **[LeilaoMi/AutoMergePublicNodes-Optimized](https://github.com/LeilaoMi/AutoMergePublicNodes-Optimized)** —— 外部公共源之一，每 6 小时 sing-box 真测 + 国内探针验证
 - **[ALIILAPRO/v2rayNG-Config](https://github.com/ALIILAPRO/v2rayNG-Config)** —— 外部公共源之一，每日更新的大池，TCP 系节点存活率最高
+- **[mahdibland/V2RayAggregator](https://github.com/mahdibland/V2RayAggregator)** —— 外部公共源之一，聚合器大池，ss/vmess/trojan 为主
+- **[barry-far/V2ray-Config](https://github.com/barry-far/V2ray-Config)** —— 外部公共源之一，每日更新大池，vless/REALITY 为主

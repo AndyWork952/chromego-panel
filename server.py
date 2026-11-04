@@ -67,7 +67,6 @@ EXT_SOURCES = {
                       mirror="https://cdn.jsdelivr.net/gh/barry-far/V2ray-Config@main/All_Configs_Sub.txt",
                       relay="https://wget.la/https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt"),
 }
-EXT_KEEP_TCP = 120     # TCP 系（vmess/vless/trojan/ss）：真握手测活后平权保留（延迟不参与排序，避免高延迟优质节点被挤掉）
 EXT_KEEP_HY1 = 20      # hysteria v1：QUIC 走 UDP 无法 TCP 握手测活，免检直收
 EXT_KEEP_HY2 = 60      # hysteria2：同上免检直收（用户实测移动宽带对 hy2 兼容最好）
 EXT_PROBE_LIMIT = 800  # 每源最多送测的 TCP 链接数，防超大源把刷新拖成几分钟
@@ -660,6 +659,10 @@ def _clash_proxy(url, name):
                 body + "=" * (-len(body) % 4)).decode().rpartition("@")
             cipher, _, pw = userinfo.partition(":")
             server, _, port = hostport.rpartition(":")
+        # 公共源里 chacha20-poly1305 是简写，mihomo 只认全称，不规范化会导致
+        # Clash Verge 导入整个配置直接报「unknown method」验签失败
+        if cipher == "chacha20-poly1305":
+            cipher = "chacha20-ietf-poly1305"
         return dict(name=name, type="ss", server=server, port=int(port),
                     cipher=cipher, password=pw, udp=True)
     if u.scheme == "hysteria2":
@@ -842,8 +845,9 @@ def _probe_link(link):
 
 def refresh_ext(key):
     """拉取一个外部源 -> 解析去重 -> 分两路处理 -> 写缓存：
-    TCP 系（vmess/vless/trojan/ss）真握手测活，按延迟保留；hy1/hy2 走 UDP 无法 TCP 握手测活，
-    免检直收（挑活交给客户端的 url-test 组）。拉取顺序：raw -> jsDelivr -> wget.la 反代镜像。"""
+    TCP 系（vmess/vless/trojan/ss）真握手测活，连通就全收（不做数量上限）；
+    hy1/hy2 走 UDP 无法 TCP 握手测活，免检直收（挑活交给客户端的 url-test 组）。
+    拉取顺序：raw -> jsDelivr -> wget.la 反代镜像。"""
     src = EXT_SOURCES[key]
     chain = [(src["url"], "github"), (src["mirror"], "jsDelivr")]
     if src.get("relay"):
@@ -866,9 +870,9 @@ def refresh_ext(key):
     for line in text.splitlines():
         line = line.strip()
         p = _parse_link(line) if "://" in line else None
-        if not p or p[0] not in _EXT_SCHEMES or p in seen:  # 只收面板四类槽位对应的协议
+        if not p or p[0] not in _EXT_SCHEMES or line in seen:  # 只收面板四类槽位对应的协议；先按整行去重
             continue
-        seen.add(p)
+        seen.add(line)
         total += 1
         if p[0] == "hysteria2":
             hy2.append(line)
@@ -881,9 +885,20 @@ def refresh_ext(key):
     with ThreadPoolExecutor(max_workers=60) as ex:
         results = list(ex.map(lambda l: (l, _probe_link(l)), tcp[:EXT_PROBE_LIMIT]))
     # 测活只当「连通/不通」这道闸，不按延迟排名：延迟低≠好用（美国节点延迟高但带宽足，
-    # 若按延迟排序会被日本/香港的近节点挤掉）。只要连通就按源顺序平权保留，延迟仅作展示。
-    keep_tcp = [url for url, ms in results if ms is not None][:EXT_KEEP_TCP]
-    ms_of = {url: round(ms) for url, ms in results if ms is not None}
+    # 若按延迟排序会被日本/香港的近节点挤掉）。延迟仅作展示。
+    # 同 (协议,IP,端口) 的去重必须放在测活之后：源文件里同一台服务器常有多个变体
+    # （纯 trojan / trojan+ws…），若按先来先占，排前面的 ws 变体测活失败会把后面
+    # 活着的纯 TCP 变体一起带走（emaorzi 的 api.85s.me 美国节点就是这么丢的）。
+    keep_tcp, ms_of, seen_p = [], {}, set()
+    for url, ms in results:
+        if ms is None:
+            continue
+        p = _parse_link(url)
+        if p in seen_p:
+            continue
+        seen_p.add(p)
+        keep_tcp.append(url)
+        ms_of[url] = round(ms)
     keep = keep_tcp + hy1[:EXT_KEEP_HY1] + hy2[:EXT_KEEP_HY2]
     data = dict(fetched=datetime.now().strftime("%Y-%m-%d %H:%M"), source=source,
                 total=total, tcp=len(tcp), tcp_alive=len(keep_tcp),
@@ -894,10 +909,14 @@ def refresh_ext(key):
 
 
 def ext_alive():
-    """全部外部源的节点：跨源按 (协议,地址,端口) 去重；TCP 系跨源按测活延迟排序后限量，
-    hy1/hy2 免检直收分别限量。TCP 系进缓存前已真握手测活；hy1/hy2 靠客户端的 url-test 组自己挑。"""
-    tcp, hy1, hy2 = [], [], []  # tcp 元素带测活延迟 ms，跨源统一排序
-    seen = set()
+    """全部外部源的节点：跨源按 (协议,地址,端口) 去重。
+    TCP 系进缓存前已真握手测活，**通过就全收、不限量**——截断等于抽签（好节点在文件里的
+    排序每天变，今天在第 48 位明天可能第 217 位，任何上限都会随机杀掉优质节点）。
+    hy1/hy2 免检直收（没法 TCP 握手测活），仍限量并跨源**轮流取**（每轮每源 1 条，某源取完
+    即跳过）——否则排前面的源会把 hy2 名额吃光（ermaozi 会挤掉 hy2 主力 cbusifab）；
+    hy 系的死活交给客户端的 url-test 组自己挑。"""
+    pools = {"hy1": [], "hy2": []}  # 免检桶：每桶是 [该源按缓存顺序的列表]，限量时跨源轮流取
+    tcp, seen = [], set()
     for key in EXT_SOURCES:
         f = ext_cache_file(key)
         if not f.exists():
@@ -906,19 +925,42 @@ def ext_alive():
             d = json.loads(f.read_text(encoding="utf-8"))
         except Exception:
             continue
+        fetched = d.get("fetched", "")
+        per = {"hy1": [], "hy2": []}
         for n in d.get("nodes", []):
             p = _parse_link(n["url"])
             if not p or p[0] not in _EXT_SCHEMES or p in seen:  # 协议过滤兜底：旧版缓存只存了别的协议也不放行
                 continue
             seen.add(p)
             if p[0] == "hysteria2":
-                hy2.append((n["url"], n["name"], d.get("fetched", "")))
+                per["hy2"].append((n["url"], n["name"], fetched))
             elif p[0] == "hysteria":
-                hy1.append((n["url"], n["name"], d.get("fetched", "")))
+                per["hy1"].append((n["url"], n["name"], fetched))
             else:
-                tcp.append((n["url"], n["name"], d.get("fetched", "")))
-    # 跨源去重后平权保留（不再按延迟排序截断，延迟只作展示），避免远距离的高延迟优质节点被挤掉
-    return (tcp[:EXT_KEEP_TCP] + hy1[:EXT_KEEP_HY1] + hy2[:EXT_KEEP_HY2])
+                tcp.append((n["url"], n["name"], fetched))
+        for k in pools:
+            if per[k]:
+                pools[k].append(per[k])
+
+    def round_robin(groups, cap):
+        """从各源列表轮流取：第 i 轮取每个源的第 i 条，某源取完跳过，凑满 cap 条为止。"""
+        out, i = [], 0
+        while len(out) < cap:
+            took = False
+            for g in groups:
+                if i < len(g):
+                    out.append(g[i])
+                    took = True
+                    if len(out) >= cap:
+                        break
+            if not took:
+                break
+            i += 1
+        return out
+
+    return (tcp
+            + round_robin(pools["hy1"], EXT_KEEP_HY1)
+            + round_robin(pools["hy2"], EXT_KEEP_HY2))
 
 
 def refresh_ext_all(background=True):
@@ -1025,7 +1067,7 @@ class Handler(BaseHTTPRequestHandler):
                 exts.append(info)
             proxy = _PROXY["url"]  # 只回缓存值，不在请求线程里现探
             self._json(dict(ext=exts, refreshing=EXT_REFRESHING,
-                            keep_tcp=EXT_KEEP_TCP, keep_hy1=EXT_KEEP_HY1, keep_hy2=EXT_KEEP_HY2,
+                            keep_hy1=EXT_KEEP_HY1, keep_hy2=EXT_KEEP_HY2,
                             proxy=proxy, proxy_checked=bool(_PROXY["ts"]),
                             proxy_cfg=_user_proxy))
         elif self.path == "/sub" or self.path.startswith("/sub/"):

@@ -76,20 +76,32 @@ tuic = "tuic://uuid:pw@6.6.6.6:443#bad"
                                                  dict(url=tj, name="tr", ms=50),
                                                  dict(url=ss, name="s", ms=None),
                                                  dict(url=tuic, name="bad", ms=None)])))
-urls = [u for u, _, _ in server.ext_alive()]
-assert tuic not in urls and h2b in urls and tj in urls  # tuic 不收，其余全留
-assert urls.index(v) < urls.index(tj) < urls.index(h1) < urls.index(h2)  # TCP 系平权按缓存顺序，延迟不参与排序
+# 第二个源：只有一个 TCP 节点，验证多源合并时排后面的源不会被挤掉
+server.EXT_SOURCES["demo2"] = dict(label="demo2")
+tj2 = "trojan://pw@7.7.7.8:443?sni=s.com#tr2"
+(server.CACHE_DIR / "ext_demo2.json").write_text(
+    json.dumps(dict(fetched="t", nodes=[dict(url=tj2, name="t2", ms=None)])))
 
-# 分协议限量：TCP 系按 EXT_KEEP_TCP，hy1 按 EXT_KEEP_HY1，hy2 按 EXT_KEEP_HY2
-server.EXT_KEEP_TCP, server.EXT_KEEP_HY1, server.EXT_KEEP_HY2 = 1, 0, 1
+# TCP 系测活通过全收：demo 的 v/tj + demo2 的 tj2 都得在，源内顺序不变（延迟不参与排序）
 urls = [u for u, _, _ in server.ext_alive()]
-assert set(urls) == {v, h2}  # tcp 桶平权截到 1 个（按缓存顺序第一个是 vmess）、hy1 清零、hy2 截到 1 个
-server.EXT_KEEP_TCP, server.EXT_KEEP_HY1, server.EXT_KEEP_HY2 = 40, 20, 60
+assert tuic not in urls and h2b in urls and tj in urls and tj2 in urls  # tuic 不收，其余全留
+assert urls.index(v) < urls.index(tj) < urls.index(h1) < urls.index(h2)  # TCP 全收按缓存顺序；hy 同源内顺序不变
 
-# 两种订阅格式（外部源 6 条，其中 hy1 只进 Clash 不进 v2rayN）
-assert base64.b64decode(server.build_sub()).decode().count("://") == 5
+# hy1/hy2 免检限量 + 跨源轮流取：名额只给 1 个时第二个源的 hy2 也要能轮到
+server.EXT_SOURCES["demo3"] = dict(label="demo3")
+server.EXT_KEEP_HY1, server.EXT_KEEP_HY2 = 0, 1
+(server.CACHE_DIR / "ext_demo3.json").write_text(
+    json.dumps(dict(fetched="t", nodes=[dict(url="hysteria2://auth@3.3.3.3:443?sni=s.com#h2c", name="h2c", ms=None)])))
+urls = [u for u, _, _ in server.ext_alive()]
+assert set(urls) == {v, tj, ss, tj2, h2}  # TCP 不受影响（v/tj/ss/tj2 全收）；hy2 轮流取第 0 轮取 demo 的 h2（demo2 无 hy2，demo3 的 h2c 下轮才轮到）
+server.EXT_KEEP_HY1, server.EXT_KEEP_HY2 = 20, 60
+urls = [u for u, _, _ in server.ext_alive()]
+assert "hysteria2://auth@3.3.3.3:443?sni=s.com#h2c" in urls  # 名额够时各源 hy2 都进
+
+# 两种订阅格式（外部源 8 条，其中 hy1 只进 Clash 不进 v2rayN）
+assert base64.b64decode(server.build_sub()).decode().count("://") == 7
 cfg = yaml.safe_load(server.build_sub_clash())
 assert [g["type"] for g in cfg["proxy-groups"]] == ["select", "url-test"]
-assert len(cfg["proxies"]) == 6
+assert len(cfg["proxies"]) == 8
 
 print("selftest OK")
