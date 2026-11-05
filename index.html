@@ -194,7 +194,7 @@
       作者把免费节点放在云端几个<strong>固定地址</strong>（显示为「源1、源2」）。当它们是<strong>快递柜</strong>：柜子地址不变，里面包裹会换——节点被封了就换一批新的，有时连协议都换。
       所以每次拉到的都是「这一刻柜子里的货」，隔几天回来重拉才稳。这些柜子国内<strong>不用翻墙就能开</strong>，拉取不依赖代理。</p>
     <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">② 外部公共源（「来源二」面板）</b> ——
-      别的作者把免费节点打包放在 GitHub 上，面板拉下来、只挑对应的协议。TCP 系节点会<strong>挨个试连、连不通的扔掉</strong>（像打电话看接不接）；hy1/hy2 走 UDP 试连无效，直接收、交给客户端「自动选择」挑。
+      别的作者把免费节点打包放在 GitHub 上，面板拉下来、只挑对应的协议。TCP 系节点会<strong>挨个试连、连不通的扔掉</strong>（像打电话看接不接）；hy1/hy2 走 UDP 试连无效，直接收但限量；<strong>ss 量大质次，也只留少量</strong>（这三种分别限量：ss 30、hy1 20、hy2 30）。trojan / vless（含 reality）这类真握手验证过的<strong>全收不限量</strong>。订阅里分了「精选」和「全部」：<strong>精选</strong>只放真握手验证过的节点，默认走它；ss、hy 和只通了端口的一律留在<strong>全部</strong>里。
       GitHub 国内直连打不开：填了「代理地址」就走代理，没填就借国内「搬运站」（镜像）拿。这些源<strong>不自动更新</strong>，点「立即更新」才拿一次。</p>
     <p class="why" style="margin-top:10px"><b style="color:var(--text)">③ 开代理软件 ≠ 开系统代理</b> ——
       <strong>开软件</strong> = 开了一个「中转站」（如 127.0.0.1:10808）；<strong>开系统代理</strong> = 在 Windows 贴张「告示」，告诉浏览器该走哪个中转站，它自己不干活。
@@ -202,11 +202,40 @@
   </div>
 
   <div class="panel">
-    <h2>博主推荐</h2>
-    <p class="why" style="margin-bottom:10px">博主用下来的体会，供参考——好节点靠的是「线路」，不是协议，也不是时段：</p>
-    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">认线路，别认协议</b> —— 好用的往往是一批稳定节点（比如同一家机场的服务器）。碰到顺手的，记下它的名字或「家族」，下次直接找它，不用管它跑的是 trojan、hysteria 还是别的。</p>
-    <p class="why" style="margin-bottom:10px"><b style="color:var(--text)">延迟只作参考</b> —— 延迟低 ≠ 好用。美国节点延迟高、但带宽足，照样比很多低延迟节点跑得爽；真正决定体验的是这条线路稳不稳、快不快。</p>
-    <p class="why">感觉不好使了，先回面板点一次「立即更新」——免费节点寿命短，多半是过期了，不是协议、时段或你网络的问题。懒得手动挑，就交给客户端的「自动选择」。</p>
+    <h2>对比「直接订阅免费源」</h2>
+    <p class="desc" style="margin-bottom:14px">面板不是「造节点」，而是把散落各处的免费节点<strong>拉下来、验一遍、合并去重</strong>再给你，省掉你自己到处找订阅、一个个试的功夫：</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+      <thead>
+        <tr style="text-align:left;color:var(--muted)">
+          <th style="padding:8px 10px;border-bottom:1px solid var(--line)">你关心的</th>
+          <th style="padding:8px 10px;border-bottom:1px solid var(--line);color:var(--accent)">我们的面板</th>
+          <th style="padding:8px 10px;border-bottom:1px solid var(--line)">直接订阅免费源</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line);font-weight:600">国内能不能拉到</td>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line)">✅ 三条链路自动切换，打不开就换镜像</td>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line)">❌ GitHub raw 常被掐，得先能翻墙</td>
+        </tr>
+        <tr>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line);font-weight:600">节点可用率</td>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line)">✅ 逐个真连验活，死的先剔除</td>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line)">❌ 一堆死节点，得自己一个个试</td>
+        </tr>
+        <tr>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line);font-weight:600">多源合并去重</td>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line)">✅ 六源 + ChromeGo 一个订阅搞定</td>
+          <td style="padding:9px 10px;border-bottom:1px dashed var(--line)">❌ 手动加 N 个订阅，重复节点自己看</td>
+        </tr>
+        <tr>
+          <td style="padding:9px 10px;font-weight:600">自动选优</td>
+          <td style="padding:9px 10px">✅ 精选/全部 分层，自动切活节点</td>
+          <td style="padding:9px 10px">❌ 手动挑，选到死节点再换</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="why" style="margin-top:14px">免费节点寿命普遍只有几小时，感觉不好使了先点一次「立即更新」——多半是过期了，不是协议、时段或你网络的问题。懒得手动挑，就交给客户端的「自动-精选」（默认）；它挑不出活的，再切「自动-全部」试 hy 系。</p>
   </div>
 </main>
 
@@ -286,7 +315,7 @@ async function loadExt() {
     const btn = document.getElementById('extBtn');
     if (d.refreshing) {
       _extWasRefreshing = true;
-      document.getElementById('extInfo').textContent = '⏳ 正在下载源、TCP 节点挨个试连…（一分多钟）';
+      document.getElementById('extInfo').textContent = '⏳ 正在下载源、TCP 节点挨个试连…（两三分钟）';
       btn.disabled = true;
       setTimeout(loadExt, 4000);
     } else {
@@ -304,7 +333,7 @@ async function loadExt() {
       }
       const net = d.proxy ? `走你填的代理（${esc(d.proxy.replace('http://', ''))}）`
                           : (d.proxy_checked ? '没填代理，走直连 + 镜像' : '正在看网络情况…');
-      document.getElementById('extInfo').textContent = `收 6 种协议 · TCP 系测活通过全收 · hy1 免检最多 ${d.keep_hy1} 条 · hy2 免检最多 ${d.keep_hy2} 条 · ${net}`;
+      document.getElementById('extInfo').textContent = `收 6 种协议 · trojan/vless/vmess 验过全收 · ss 最多 ${d.keep_ss} 条 · hy1 最多 ${d.keep_hy1} 条 · hy2 最多 ${d.keep_hy2} 条 · ${net}`;
     }
     const pi = document.getElementById('proxyInput');
     if (pi !== document.activeElement)  // 正在打字时别覆盖输入框
@@ -325,7 +354,7 @@ async function doExtRefresh() {
   const btn = document.getElementById('extBtn');
   btn.disabled = true;
   document.getElementById('extDone').hidden = true;  // 清掉上一轮的结果横幅
-  document.getElementById('extInfo').textContent = '⏳ 正在下载源、TCP 节点挨个试连…（一分多钟）';
+  document.getElementById('extInfo').textContent = '⏳ 正在下载源、TCP 节点挨个试连…（两三分钟）';
   await fetch('/api/ext_refresh', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
   loadExt();
 }

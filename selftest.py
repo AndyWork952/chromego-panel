@@ -101,7 +101,12 @@ assert "hysteria2://auth@3.3.3.3:443?sni=s.com#h2c" in urls  # 名额够时各�
 # 两种订阅格式（外部源 8 条，其中 hy1 只进 Clash 不进 v2rayN）
 assert base64.b64decode(server.build_sub()).decode().count("://") == 7
 cfg = yaml.safe_load(server.build_sub_clash())
-assert [g["type"] for g in cfg["proxy-groups"]] == ["select", "url-test"]
+assert [g["name"] for g in cfg["proxy-groups"]] == [
+    "freeproxy-panel", "自动-精选", "自动-全部", "精选", "全部"]
+assert [g["type"] for g in cfg["proxy-groups"]] == ["select", "url-test", "url-test", "select", "select"]
 assert len(cfg["proxies"]) == 8
+picked = next(g for g in cfg["proxy-groups"] if g["name"] == "精选")
+assert set(picked["proxies"]) == {"名", "tr", "tr2"}  # 只有 TLS 真握手的进精选；ss/hy 只留在全部
+assert cfg["proxy-groups"][0]["proxies"][:2] == ["自动-精选", "自动-全部"]  # 默认走精选的自动组
 
 print("selftest OK")

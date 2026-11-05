@@ -55,8 +55,8 @@ EXT_SOURCES = {
                       url="https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
                       mirror="https://cdn.jsdelivr.net/gh/ALIILAPRO/v2rayNG-Config@main/sub.txt",
                       relay="https://wget.la/https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"),
-    # 聚合器大池：ss/trojan/vmess 为主，正好补现有源的 hysteria 系（2026-11-04 实测 3037 链接，
-    # 去重后 3022，协议分布 ss 887 / vmess 1424 / trojan 726）。每源 800 条测活上限会自动截住大池
+    # 聚合器大池：ss/trojan/vmess 为主，正好补现有源的 hysteria 系（2026-11-04 实测 4304 链接，
+    # 去重后 3022，协议分布 ss 887 / vmess 1424 / trojan 726）。每源测活上限会截住大池
     "mahdibland": dict(label="V2RayAggregator",
                        url="https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt",
                        mirror="https://cdn.jsdelivr.net/gh/mahdibland/V2RayAggregator@master/sub/sub_merge.txt",
@@ -68,9 +68,18 @@ EXT_SOURCES = {
                       relay="https://wget.la/https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt"),
 }
 EXT_KEEP_HY1 = 20      # hysteria v1：QUIC 走 UDP 无法 TCP 握手测活，免检直收
-EXT_KEEP_HY2 = 60      # hysteria2：同上免检直收（用户实测移动宽带对 hy2 兼容最好）
-EXT_PROBE_LIMIT = 800  # 每源最多送测的 TCP 链接数，防超大源把刷新拖成几分钟
+# hysteria2：同上免检直收。上限从 60 降到 30——hy 系是完全未验证的赌注，60 条占订阅 1/3 太重；
+# 留 30 条仍够移动宽带挑（用户实测移动网络对 hy2 兼容最好），其余名额让给测活通过的 TCP 系。
+EXT_KEEP_HY2 = 30
+# shadowsocks 限量：公共源里的 ss 大量是废弃节点（barryfar 九千多条里 99% 是 ss，通过率 ~2%），
+# 全收会把订阅淹没在死 ss 里。留 30 条跨源轮流取，够用又不占别的协议名额。
+EXT_KEEP_SS = 30
+EXT_PROBE_LIMIT = 1500  # 每源最多送测的 TCP 链接数。大池（2500~4300 条）在 800 时只能测到前段，
+                        # vless/trojan 排后面根本轮不到；提到 1500 覆盖更多真节点，刷新约 2~3 分钟
 _EXT_TCP_SCHEMES = ("vmess", "vless", "trojan", "ss")
+# 送测优先级：trojan/vless（含 reality）质量最高最先测，vmess 次之，ss 量大质次排最后——
+# 避免 1500 上限把排后面没测到的好协议随机截掉。ss 反正要限量，截断也无所谓。
+_EXT_PROBE_PRIO = {"trojan": 0, "vless": 0, "vmess": 1, "ss": 2}
 _EXT_SCHEMES = _EXT_TCP_SCHEMES + ("hysteria", "hysteria2")  # 与面板四个槽位类型对应的协议全集
 # 外部源只在一种时机刷新：用户在界面上点「立即更新」按钮
 
@@ -706,8 +715,11 @@ def _clash_proxy(url, name):
 
 
 def build_sub_clash():
-    """Clash / Mihomo 订阅（YAML）。比 base64 订阅多收 hysteria v1。"""
-    proxies, names, taken = [], [], set()
+    """Clash / Mihomo 订阅（YAML）。比 base64 订阅多收 hysteria v1。
+
+    分两层：`精选`只放真握手验证过的 TCP 系节点（trojan / vless-tls / vmess-tls），默认走它；
+    `全部`包含所有节点（含免检的 hy、仅 TCP 连通的 ss）。免费节点死得快，让 url-test 自己挑活的。"""
+    proxies, names, taken, verified = [], [], set(), []
     for url, _ in iter_unique_links(v2n_only=False):
         base = link_name(url)
         name, i = base, 2
@@ -718,21 +730,39 @@ def build_sub_clash():
             p = _clash_proxy(url, name)  # 不支持的协议在这里返回 None；字段奇葩的坏链接会抛异常
         except Exception:
             continue  # 跳过比打挂整个订阅好
-        if p:
-            proxies.append(p)
-            names.append(name)
-            taken.add(name)
+        if not p:
+            continue
+        proxies.append(p)
+        names.append(name)
+        taken.add(name)
+        if url.partition("://")[0] in _EXT_TCP_SCHEMES:
+            try:
+                if _link_tls(url)[0]:  # 只有真完成过 SSL 握手的节点才进精选
+                    verified.append(name)
+            except Exception:
+                pass
     if not proxies:
         return "proxies: []\n"
-    # 最小可运行配置：手动选择组 + 自动测速组（免费节点死得快，让 url-test 自己挑活的）
+    # 测速只打 generate_204（不下载正文）：带宽交给实际使用时体现，避免每 2 分钟拉几百份流量
+    test = dict(url="http://www.gstatic.com/generate_204", interval=120,
+                tolerance=100, **{"lazy": True, "max-fails": 3})
+    if verified:
+        groups = [
+            {"name": "freeproxy-panel", "type": "select",
+             "proxies": ["自动-精选", "自动-全部", "精选", "全部"]},
+            {"name": "自动-精选", "type": "url-test", "proxies": list(verified), **test},
+            {"name": "自动-全部", "type": "url-test", "proxies": list(names), **test},
+            {"name": "精选", "type": "select", "proxies": list(verified)},
+            {"name": "全部", "type": "select", "proxies": list(names)},
+        ]
+    else:  # 一条 TLS 节点都没有时退化成旧的两组结构，避免空组让客户端报错
+        groups = [
+            {"name": "freeproxy-panel", "type": "select", "proxies": ["自动选择"] + names},
+            {"name": "自动选择", "type": "url-test", "proxies": list(names), **test},
+        ]
     return yaml.dump({
         "proxies": proxies,
-        "proxy-groups": [
-            {"name": "freeproxy-panel", "type": "select", "proxies": ["自动选择"] + names},
-            {"name": "自动选择", "type": "url-test", "proxies": list(names),
-             "url": "http://www.gstatic.com/generate_204", "interval": 120,
-             "tolerance": 100, "lazy": True, "max-fails": 3},
-        ],
+        "proxy-groups": groups,
         "rules": ["MATCH,freeproxy-panel"],
     }, allow_unicode=True, sort_keys=False)
 
@@ -845,7 +875,7 @@ def _probe_link(link):
 
 def refresh_ext(key):
     """拉取一个外部源 -> 解析去重 -> 分两路处理 -> 写缓存：
-    TCP 系（vmess/vless/trojan/ss）真握手测活，连通就全收（不做数量上限）；
+    TCP 系（vmess/vless/trojan/ss）真握手测活，连通就全收（ss 的限量在 ext_alive 跨源阶段做）；
     hy1/hy2 走 UDP 无法 TCP 握手测活，免检直收（挑活交给客户端的 url-test 组）。
     拉取顺序：raw -> jsDelivr -> wget.la 反代镜像。"""
     src = EXT_SOURCES[key]
@@ -880,9 +910,10 @@ def refresh_ext(key):
             hy1.append(line)
         else:
             tcp.append(line)
-    # 送测前把 vmess 排后面：公共源的 vless/trojan 常堆在文件末尾，vmess 量大质次，先测更值钱的
-    tcp.sort(key=lambda l: l.startswith("vmess://"))
-    with ThreadPoolExecutor(max_workers=60) as ex:
+    # 送测前按协议优先级排：trojan/vless（含 reality）最先，vmess 次之，ss 最后。
+    # 1500 上限截断时保好协议，ss 反正要限量，截掉无所谓。
+    tcp.sort(key=lambda l: _EXT_PROBE_PRIO.get(l.partition("://")[0], 1))
+    with ThreadPoolExecutor(max_workers=100) as ex:  # 并发 100：1500 条送测时约 2~3 分钟，和原来 800 条相当
         results = list(ex.map(lambda l: (l, _probe_link(l)), tcp[:EXT_PROBE_LIMIT]))
     # 测活只当「连通/不通」这道闸，不按延迟排名：延迟低≠好用（美国节点延迟高但带宽足，
     # 若按延迟排序会被日本/香港的近节点挤掉）。延迟仅作展示。
@@ -910,12 +941,12 @@ def refresh_ext(key):
 
 def ext_alive():
     """全部外部源的节点：跨源按 (协议,地址,端口) 去重。
-    TCP 系进缓存前已真握手测活，**通过就全收、不限量**——截断等于抽签（好节点在文件里的
-    排序每天变，今天在第 48 位明天可能第 217 位，任何上限都会随机杀掉优质节点）。
-    hy1/hy2 免检直收（没法 TCP 握手测活），仍限量并跨源**轮流取**（每轮每源 1 条，某源取完
-    即跳过）——否则排前面的源会把 hy2 名额吃光（ermaozi 会挤掉 hy2 主力 cbusifab）；
-    hy 系的死活交给客户端的 url-test 组自己挑。"""
-    pools = {"hy1": [], "hy2": []}  # 免检桶：每桶是 [该源按缓存顺序的列表]，限量时跨源轮流取
+    TCP 系进缓存前已真握手测活，通过即收——vmess/vless/trojan **不限量**（截断等于抽签：好节点
+    在文件里的排序每天变，今天在第 48 位明天可能第 217 位，任何上限都会随机杀掉优质节点）。
+    hy/hy2 免检直收（没法 TCP 握手测活），ss 虽已测活但量大质次需限量，都跨源**轮流取**
+    （每轮每源 1 条，某源取完即跳过）——否则排前面的源会把名额吃光（ermaozi 会挤掉 hy2 主力
+    cbusifab）；hy/ss 的死活交给客户端的 url-test 组自己挑。"""
+    pools = {"hy1": [], "hy2": [], "ss": []}  # 限量桶：每桶是 [该源按缓存顺序的列表]，限量时跨源轮流取
     tcp, seen = [], set()
     for key in EXT_SOURCES:
         f = ext_cache_file(key)
@@ -926,7 +957,7 @@ def ext_alive():
         except Exception:
             continue
         fetched = d.get("fetched", "")
-        per = {"hy1": [], "hy2": []}
+        per = {"hy1": [], "hy2": [], "ss": []}
         for n in d.get("nodes", []):
             p = _parse_link(n["url"])
             if not p or p[0] not in _EXT_SCHEMES or p in seen:  # 协议过滤兜底：旧版缓存只存了别的协议也不放行
@@ -936,6 +967,8 @@ def ext_alive():
                 per["hy2"].append((n["url"], n["name"], fetched))
             elif p[0] == "hysteria":
                 per["hy1"].append((n["url"], n["name"], fetched))
+            elif p[0] == "ss":
+                per["ss"].append((n["url"], n["name"], fetched))
             else:
                 tcp.append((n["url"], n["name"], fetched))
         for k in pools:
@@ -959,6 +992,7 @@ def ext_alive():
         return out
 
     return (tcp
+            + round_robin(pools["ss"], EXT_KEEP_SS)
             + round_robin(pools["hy1"], EXT_KEEP_HY1)
             + round_robin(pools["hy2"], EXT_KEEP_HY2))
 
@@ -1067,7 +1101,7 @@ class Handler(BaseHTTPRequestHandler):
                 exts.append(info)
             proxy = _PROXY["url"]  # 只回缓存值，不在请求线程里现探
             self._json(dict(ext=exts, refreshing=EXT_REFRESHING,
-                            keep_hy1=EXT_KEEP_HY1, keep_hy2=EXT_KEEP_HY2,
+                            keep_hy1=EXT_KEEP_HY1, keep_hy2=EXT_KEEP_HY2, keep_ss=EXT_KEEP_SS,
                             proxy=proxy, proxy_checked=bool(_PROXY["ts"]),
                             proxy_cfg=_user_proxy))
         elif self.path == "/sub" or self.path.startswith("/sub/"):
